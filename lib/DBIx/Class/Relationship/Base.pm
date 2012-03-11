@@ -167,7 +167,7 @@ L<SQL::Abstract> and the resulting SQL will be used verbatim as the C<ON>
 clause of the C<JOIN> statement associated with this relationship.
 
 While every coderef-based condition must return a valid C<ON> clause, it may
-elect to additionally return a simplified join-free condition hashref when 
+elect to additionally return a simplified join-free condition hashref when
 invoked as C<< $row_object->relationship >>, as opposed to
 C<< $rs->related_resultset('relationship') >>. In this case C<$row_object> is
 passed to the coderef as C<< $args->{self_rowobj} >>, so a user can do the
@@ -461,11 +461,9 @@ sub related_resultset {
         my $reverse = $source->reverse_relationship_info($rel);
         foreach my $rev_rel (keys %$reverse) {
           if ($reverse->{$rev_rel}{attrs}{accessor} && $reverse->{$rev_rel}{attrs}{accessor} eq 'multi') {
-            $attrs->{related_objects}{$rev_rel} = [ $self ];
-            weaken $attrs->{related_object}{$rev_rel}[0];
+            weaken($attrs->{related_objects}{$rev_rel}[0] = $self);
           } else {
-            $attrs->{related_objects}{$rev_rel} = $self;
-            weaken $attrs->{related_object}{$rev_rel};
+            weaken($attrs->{related_objects}{$rev_rel} = $self);
           }
         }
       }

@@ -14,6 +14,7 @@ use List::Util qw/first/;
 use Sub::Name 'subname';
 use Try::Tiny;
 use overload ();
+use Data::Compare (); # no imports!!! guard against insane architecture
 use namespace::clean;
 
 # default cursor class, overridable in connect_info attributes
@@ -61,8 +62,12 @@ __PACKAGE__->mk_group_accessors('simple' => @storage_options);
 my @capabilities = (qw/
   insert_returning
   insert_returning_bound
+
+  multicolumn_in
+
   placeholders
   typeless_placeholders
+
   join_optimizer
 /);
 __PACKAGE__->mk_group_accessors( dbms_capability => map { "_supports_$_" } @capabilities );
@@ -225,6 +230,7 @@ sub DESTROY {
   my $self = shift;
 
   # some databases spew warnings on implicit disconnect
+  $self->_verify_pid;
   local $SIG{__WARN__} = sub {};
   $self->_dbh(undef);
 
@@ -325,8 +331,8 @@ for most DBDs. See L</DBIx::Class and AutoCommit> for details.
 
 =head3 DBIx::Class specific connection attributes
 
-In addition to the standard L<DBI|DBI/ATTRIBUTES_COMMON_TO_ALL_HANDLES>
-L<connection|DBI/Database_Handle_Attributes> attributes, DBIx::Class recognizes
+In addition to the standard L<DBI|DBI/ATTRIBUTES COMMON TO ALL HANDLES>
+L<connection|DBI/Database Handle Attributes> attributes, DBIx::Class recognizes
 the following connection options. These options can be mixed in with your other
 L<DBI> connection attributes, or placed in a separate hashref
 (C<\%extra_attributes>) as shown above.
@@ -1360,7 +1366,7 @@ sub txn_commit {
   # as a new txn is started immediately on commit
   $self->transaction_depth(1) if (
     !$self->transaction_depth
-      and 
+      and
     defined $self->_dbh_autocommit
       and
     ! $self->_dbh_autocommit
@@ -1391,7 +1397,7 @@ sub txn_rollback {
   # as a new txn is started immediately on commit
   $self->transaction_depth(1) if (
     !$self->transaction_depth
-      and 
+      and
     defined $self->_dbh_autocommit
       and
     ! $self->_dbh_autocommit
@@ -1430,42 +1436,70 @@ sub _gen_sql_bind {
     @$args,
   );
 
-  my (@final_bind, $colinfos);
-  my $resolve_bindinfo = sub {
-    $colinfos ||= $self->_resolve_column_info($ident);
-    if (my $col = $_[1]->{dbic_colname}) {
-      $_[1]->{sqlt_datatype} ||= $colinfos->{$col}{data_type}
-        if $colinfos->{$col}{data_type};
-      $_[1]->{sqlt_size} ||= $colinfos->{$col}{size}
-        if $colinfos->{$col}{size};
-    }
-    $_[1];
-  };
-
-  for my $e (@{$args->[2]{bind}||[]}, @bind) {
-    push @final_bind, [ do {
-      if (ref $e ne 'ARRAY') {
-        ({}, $e)
-      }
-      elsif (! defined $e->[0]) {
-        ({}, $e->[1])
-      }
-      elsif (ref $e->[0] eq 'HASH') {
-        (
-          (first { $e->[0]{$_} } qw/dbd_attrs sqlt_datatype/) ? $e->[0] : $self->$resolve_bindinfo($e->[0]),
-          $e->[1]
-        )
-      }
-      elsif (ref $e->[0] eq 'SCALAR') {
-        ( { sqlt_datatype => ${$e->[0]} }, $e->[1] )
-      }
-      else {
-        ( $self->$resolve_bindinfo({ dbic_colname => $e->[0] }), $e->[1] )
-      }
-    }];
+  if (
+    ! $ENV{DBIC_DT_SEARCH_OK}
+      and
+    $op eq 'select'
+      and
+    first { blessed($_->[1]) && $_->[1]->isa('DateTime') } @bind
+  ) {
+    carp_unique 'DateTime objects passed to search() are not supported '
+      . 'properly (InflateColumn::DateTime formats and settings are not '
+      . 'respected.) See "Formatting DateTime objects in queries" in '
+      . 'DBIx::Class::Manual::Cookbook. To disable this warning for good '
+      . 'set $ENV{DBIC_DT_SEARCH_OK} to true'
   }
 
-  ($sql, \@final_bind);
+  return( $sql, $self->_resolve_bindattrs(
+    $ident, [ @{$args->[2]{bind}||[]}, @bind ]
+  ));
+}
+
+sub _resolve_bindattrs {
+  my ($self, $ident, $bind, $colinfos) = @_;
+
+  $colinfos ||= {};
+
+  my $resolve_bindinfo = sub {
+    #my $infohash = shift;
+
+    %$colinfos = %{ $self->_resolve_column_info($ident) }
+      unless keys %$colinfos;
+
+    my $ret;
+    if (my $col = $_[0]->{dbic_colname}) {
+      $ret = { %{$_[0]} };
+
+      $ret->{sqlt_datatype} ||= $colinfos->{$col}{data_type}
+        if $colinfos->{$col}{data_type};
+
+      $ret->{sqlt_size} ||= $colinfos->{$col}{size}
+        if $colinfos->{$col}{size};
+    }
+
+    $ret || $_[0];
+  };
+
+  return [ map {
+    if (ref $_ ne 'ARRAY') {
+      [{}, $_]
+    }
+    elsif (! defined $_->[0]) {
+      [{}, $_->[1]]
+    }
+    elsif (ref $_->[0] eq 'HASH') {
+      [
+        ($_->[0]{dbd_attrs} or $_->[0]{sqlt_datatype}) ? $_->[0] : $resolve_bindinfo->($_->[0]),
+        $_->[1]
+      ]
+    }
+    elsif (ref $_->[0] eq 'SCALAR') {
+      [ { sqlt_datatype => ${$_->[0]} }, $_->[1] ]
+    }
+    else {
+      [ $resolve_bindinfo->({ dbic_colname => $_->[0] }), $_->[1] ]
+    }
+  } @$bind ];
 }
 
 sub _format_for_trace {
@@ -1723,9 +1757,12 @@ sub insert {
 sub insert_bulk {
   my ($self, $source, $cols, $data) = @_;
 
+  my @col_range = (0..$#$cols);
+
   # FIXME - perhaps this is not even needed? does DBI stringify?
   #
   # forcibly stringify whatever is stringifiable
+  # ResultSet::populate() hands us a copy - safe to mangle
   for my $r (0 .. $#$data) {
     for my $c (0 .. $#{$data->[$r]}) {
       $data->[$r][$c] = "$data->[$r][$c]"
@@ -1733,118 +1770,176 @@ sub insert_bulk {
     }
   }
 
-  # check the data for consistency
-  # report a sensible error on bad data
+  my $colinfo_cache = {}; # since we will run _resolve_bindattrs on the same $source a lot
+
+  # get a slice type index based on first row of data
+  # a "column" in this context may refer to more than one bind value
+  # e.g. \[ '?, ?', [...], [...] ]
   #
-  # also create a list of dynamic binds (ones that will be changing
-  # for each row)
-  my $dyn_bind_idx;
-  for my $col_idx (0..$#$cols) {
+  # construct the value type index - a description of values types for every
+  # per-column slice of $data:
+  #
+  # nonexistent - nonbind literal
+  # 0 - regular value
+  # [] of bindattrs - resolved attribute(s) of bind(s) passed via literal+bind \[] combo
+  #
+  # also construct the column hash to pass to the SQL generator. For plain
+  # (non literal) values - convert the members of the first row into a
+  # literal+bind combo, with extra positional info in the bind attr hashref.
+  # This will allow us to match the order properly, and is so contrived
+  # because a user-supplied literal/bind (or something else specific to a
+  # resultsource and/or storage driver) can inject extra binds along the
+  # way, so one can't rely on "shift positions" ordering at all. Also we
+  # can't just hand SQLA a set of some known "values" (e.g. hashrefs that
+  # can be later matched up by address), because we want to supply a real
+  # value on which perhaps e.g. datatype checks will be performed
+  my ($proto_data, $value_type_idx);
+  for my $i (@col_range) {
+    my $colname = $cols->[$i];
+    if (ref $data->[0][$i] eq 'SCALAR') {
+      # no bind value at all - no type
 
-    # the first "row" is used as a point of reference
-    my $reference_val = $data->[0][$col_idx];
-    my $is_literal = ref $reference_val eq 'SCALAR';
-    my $is_literal_bind = ( !$is_literal and (
-      ref $reference_val eq 'REF'
-        and
-      ref $$reference_val eq 'ARRAY'
-    ) );
+      $proto_data->{$colname} = $data->[0][$i];
+    }
+    elsif (ref $data->[0][$i] eq 'REF' and ref ${$data->[0][$i]} eq 'ARRAY' ) {
+      # repack, so we don't end up mangling the original \[]
+      my ($sql, @bind) = @${$data->[0][$i]};
 
-    $dyn_bind_idx->{$col_idx} = 1
-      if (!$is_literal and !$is_literal_bind);
-
-    # use a closure for convenience (less to pass)
-    my $bad_slice = sub {
-      my ($msg, $slice_idx) = @_;
-      $self->throw_exception(sprintf "%s for column '%s' in populate slice:\n%s",
-        $msg,
-        $cols->[$col_idx],
-        do {
-          require Data::Dumper::Concise;
-          local $Data::Dumper::Maxdepth = 2;
-          Data::Dumper::Concise::Dumper ({
-            map { $cols->[$_] =>
-              $data->[$slice_idx][$_]
-            } (0 .. $#$cols)
-          }),
-        }
+      # normalization of user supplied stuff
+      my $resolved_bind = $self->_resolve_bindattrs(
+        $source, \@bind, $colinfo_cache,
       );
-    };
+
+      # store value-less (attrs only) bind info - we will be comparing all
+      # supplied binds against this for sanity
+      $value_type_idx->{$i} = [ map { $_->[0] } @$resolved_bind ];
+
+      $proto_data->{$colname} = \[ $sql, map { [
+        # inject slice order to use for $proto_bind construction
+          { %{$resolved_bind->[$_][0]}, _bind_data_slice_idx => $i }
+            =>
+          $resolved_bind->[$_][1]
+        ] } (0 .. $#bind)
+      ];
+    }
+    else {
+      $value_type_idx->{$i} = 0;
+
+      $proto_data->{$colname} = \[ '?', [
+        { dbic_colname => $colname, _bind_data_slice_idx => $i }
+          =>
+        $data->[0][$i]
+      ] ];
+    }
+  }
+
+  my ($sql, $proto_bind) = $self->_prep_for_execute (
+    'insert',
+    $source,
+    [ $proto_data ],
+  );
+
+  if (! @$proto_bind and keys %$value_type_idx) {
+    # if the bindlist is empty and we had some dynamic binds, this means the
+    # storage ate them away (e.g. the NoBindVars component) and interpolated
+    # them directly into the SQL. This obviously can't be good for multi-inserts
+    $self->throw_exception('Cannot insert_bulk without support for placeholders');
+  }
+
+  # sanity checks
+  # FIXME - devise a flag "no babysitting" or somesuch to shut this off
+  #
+  # use an error reporting closure for convenience (less to pass)
+  my $bad_slice_report_cref = sub {
+    my ($msg, $r_idx, $c_idx) = @_;
+    $self->throw_exception(sprintf "%s for column '%s' in populate slice:\n%s",
+      $msg,
+      $cols->[$c_idx],
+      do {
+        require Data::Dumper::Concise;
+        local $Data::Dumper::Maxdepth = 5;
+        Data::Dumper::Concise::Dumper ({
+          map { $cols->[$_] =>
+            $data->[$r_idx][$_]
+          } @col_range
+        }),
+      }
+    );
+  };
+
+  for my $col_idx (@col_range) {
+    my $reference_val = $data->[0][$col_idx];
 
     for my $row_idx (1..$#$data) {  # we are comparing against what we got from [0] above, hence start from 1
       my $val = $data->[$row_idx][$col_idx];
 
-      if ($is_literal) {
+      if (! exists $value_type_idx->{$col_idx}) { # literal no binds
         if (ref $val ne 'SCALAR') {
-          $bad_slice->(
+          $bad_slice_report_cref->(
             "Incorrect value (expecting SCALAR-ref \\'$$reference_val')",
-            $row_idx
+            $row_idx,
+            $col_idx,
           );
         }
         elsif ($$val ne $$reference_val) {
-          $bad_slice->(
+          $bad_slice_report_cref->(
             "Inconsistent literal SQL value (expecting \\'$$reference_val')",
-            $row_idx
+            $row_idx,
+            $col_idx,
           );
         }
       }
-      elsif ($is_literal_bind) {
-        if (ref $val ne 'REF' or ref $$val ne 'ARRAY') {
-          $bad_slice->(
-            "Incorrect value (expecting ARRAYREF-ref \\['${$reference_val}->[0]', ... ])",
-            $row_idx
-          );
-        }
-        elsif (${$val}->[0] ne ${$reference_val}->[0]) {
-          $bad_slice->(
-            "Inconsistent literal SQL-bind value (expecting \\['${$reference_val}->[0]', ... ])",
-            $row_idx
-          );
-        }
-      }
-      elsif (ref $val) {
+      elsif (! $value_type_idx->{$col_idx} ) {  # regular non-literal value
         if (ref $val eq 'SCALAR' or (ref $val eq 'REF' and ref $$val eq 'ARRAY') ) {
-          $bad_slice->("Literal SQL found where a plain bind value is expected", $row_idx);
+          $bad_slice_report_cref->("Literal SQL found where a plain bind value is expected", $row_idx, $col_idx);
         }
-        else {
-          $bad_slice->("$val reference found where bind expected", $row_idx);
+      }
+      else {  # binds from a \[], compare type and attrs
+        if (ref $val ne 'REF' or ref $$val ne 'ARRAY') {
+          $bad_slice_report_cref->(
+            "Incorrect value (expecting ARRAYREF-ref \\['${$reference_val}->[0]', ... ])",
+            $row_idx,
+            $col_idx,
+          );
+        }
+        # start drilling down and bail out early on identical refs
+        elsif (
+          $reference_val != $val
+            or
+          $$reference_val != $$val
+        ) {
+          if (${$val}->[0] ne ${$reference_val}->[0]) {
+            $bad_slice_report_cref->(
+              "Inconsistent literal/bind SQL (expecting \\['${$reference_val}->[0]', ... ])",
+              $row_idx,
+              $col_idx,
+            );
+          }
+          # need to check the bind attrs - a bind will happen only once for
+          # the entire dataset, so any changes further down will be ignored.
+          elsif (! Data::Compare::Compare(
+            $value_type_idx->{$col_idx},
+            [
+              map
+              { $_->[0] }
+              @{$self->_resolve_bindattrs(
+                $source, [ @{$$val}[1 .. $#$$val] ], $colinfo_cache,
+              )}
+            ],
+          )) {
+            $bad_slice_report_cref->(
+              'Differing bind attributes on literal/bind values not supported',
+              $row_idx,
+              $col_idx,
+            );
+          }
         }
       }
     }
   }
 
-  # Get the sql with bind values interpolated where necessary. For dynamic
-  # binds convert the values of the first row into a literal+bind combo, with
-  # extra positional info in the bind attr hashref. This will allow us to match
-  # the order properly, and is so contrived because a user-supplied literal
-  # bind (or something else specific to a resultsource and/or storage driver)
-  # can inject extra binds along the way, so one can't rely on "shift
-  # positions" ordering at all. Also we can't just hand SQLA a set of some
-  # known "values" (e.g. hashrefs that can be later matched up by address),
-  # because we want to supply a real value on which perhaps e.g. datatype
-  # checks will be performed
-  my ($sql, $proto_bind) = $self->_prep_for_execute (
-    'insert',
-    $source,
-    [ { map { $cols->[$_] => $dyn_bind_idx->{$_}
-      ? \[ '?', [
-          { dbic_colname => $cols->[$_], _bind_data_slice_idx => $_ }
-            =>
-          $data->[0][$_]
-        ] ]
-      : $data->[0][$_]
-    } (0..$#$cols) } ],
-  );
-
-  if (! @$proto_bind and keys %$dyn_bind_idx) {
-    # if the bindlist is empty and we had some dynamic binds, this means the
-    # storage ate them away (e.g. the NoBindVars component) and interpolated
-    # them directly into the SQL. This obviosly can't be good for multi-inserts
-    $self->throw_exception('Cannot insert_bulk without support for placeholders');
-  }
-
-  # neither _execute_array, nor _execute_inserts_with_no_binds are
-  # atomic (even if _execute _array is a single call). Thus a safety
+  # neither _dbh_execute_for_fetch, nor _dbh_execute_inserts_with_no_binds
+  # are atomic (even if execute_for_fetch is a single call). Thus a safety
   # scope guard
   my $guard = $self->txn_scope_guard;
 
@@ -1854,7 +1949,7 @@ sub insert_bulk {
     if (@$proto_bind) {
       # proto bind contains the information on which pieces of $data to pull
       # $cols is passed in only for prettier error-reporting
-      $self->_execute_array( $source, $sth, $proto_bind, $cols, $data );
+      $self->_dbh_execute_for_fetch( $source, $sth, $proto_bind, $cols, $data );
     }
     else {
       # bind_param_array doesn't work if there are no binds
@@ -1869,37 +1964,63 @@ sub insert_bulk {
   return (wantarray ? ($rv, $sth, @$proto_bind) : $rv);
 }
 
-sub _execute_array {
-  my ($self, $source, $sth, $proto_bind, $cols, $data, @extra) = @_;
+# execute_for_fetch is capable of returning data just fine (it means it
+# can be used for INSERT...RETURNING and UPDATE...RETURNING. Since this
+# is the void-populate fast-path we will just ignore this altogether
+# for the time being.
+sub _dbh_execute_for_fetch {
+  my ($self, $source, $sth, $proto_bind, $cols, $data) = @_;
 
-  ## This must be an arrayref, else nothing works!
-  my $tuple_status = [];
+  my @idx_range = ( 0 .. $#$proto_bind );
+
+  # If we have any bind attributes to take care of, we will bind the
+  # proto-bind data (which will never be used by execute_for_fetch)
+  # However since column bindtypes are "sticky", this is sufficient
+  # to get the DBD to apply the bindtype to all values later on
 
   my $bind_attrs = $self->_dbi_attrs_for_bind($source, $proto_bind);
 
-  # Bind the values by column slices
-  for my $i (0 .. $#$proto_bind) {
-    my $data_slice_idx = (
-      ref $proto_bind->[$i][0] eq 'HASH'
-        and
-      exists $proto_bind->[$i][0]{_bind_data_slice_idx}
-    ) ? $proto_bind->[$i][0]{_bind_data_slice_idx} : undef;
-
-    $sth->bind_param_array(
+  for my $i (@idx_range) {
+    $sth->bind_param (
       $i+1, # DBI bind indexes are 1-based
-      defined $data_slice_idx
-        # either get a "column" of dynamic values, or just repeat the same
-        # bind over and over
-        ? [ map { $_->[$data_slice_idx] } @$data ]
-        : [ ($proto_bind->[$i][1]) x @$data ]
-      ,
-      defined $bind_attrs->[$i] ? $bind_attrs->[$i] : (), # some DBDs throw up when given an undef
-    );
+      $proto_bind->[$i][1],
+      $bind_attrs->[$i],
+    ) if defined $bind_attrs->[$i];
   }
 
+  # At this point $data slots named in the _bind_data_slice_idx of
+  # each piece of $proto_bind are either \[]s or plain values to be
+  # passed in. Construct the dispensing coderef. *NOTE* the order
+  # of $data will differ from this of the ?s in the SQL (due to
+  # alphabetical ordering by colname). We actually do want to
+  # preserve this behavior so that prepare_cached has a better
+  # chance of matching on unrelated calls
+  my %data_reorder = map { $proto_bind->[$_][0]{_bind_data_slice_idx} => $_ } @idx_range;
+
+  my $fetch_row_idx = -1; # saner loop this way
+  my $fetch_tuple = sub {
+    return undef if ++$fetch_row_idx > $#$data;
+
+    return [ map
+      { (ref $_ eq 'REF' and ref $$_ eq 'ARRAY')
+        ? map { $_->[-1] } @{$$_}[1 .. $#$$_]
+        : $_
+      }
+      map
+        { $data->[$fetch_row_idx][$_]}
+        sort
+          { $data_reorder{$a} <=> $data_reorder{$b} }
+          keys %data_reorder
+    ];
+  };
+
+  my $tuple_status = [];
   my ($rv, $err);
   try {
-    $rv = $self->_dbh_execute_array($sth, $tuple_status, @extra);
+    $rv = $sth->execute_for_fetch(
+      $fetch_tuple,
+      $tuple_status,
+    );
   }
   catch {
     $err = shift;
@@ -1929,18 +2050,13 @@ sub _execute_array {
       if ($i > $#$tuple_status);
 
     require Data::Dumper::Concise;
-    $self->throw_exception(sprintf "execute_array() aborted with '%s' at populate slice:\n%s",
+    $self->throw_exception(sprintf "execute_for_fetch() aborted with '%s' at populate slice:\n%s",
       ($tuple_status->[$i][1] || $err),
       Data::Dumper::Concise::Dumper( { map { $cols->[$_] => $data->[$i][$_] } (0 .. $#$cols) } ),
     );
   }
 
   return $rv;
-}
-
-sub _dbh_execute_array {
-  #my ($self, $sth, $tuple_status, @extra) = @_;
-  return $_[1]->execute_array({ArrayTupleStatus => $_[2]});
 }
 
 sub _dbh_execute_inserts_with_no_binds {
@@ -1980,103 +2096,6 @@ sub update {
 sub delete {
   #my ($self, $source, @args) = @_;
   shift->_execute('delete', @_);
-}
-
-# We were sent here because the $rs contains a complex search
-# which will require a subquery to select the correct rows
-# (i.e. joined or limited resultsets, or non-introspectable conditions)
-#
-# Generating a single PK column subquery is trivial and supported
-# by all RDBMS. However if we have a multicolumn PK, things get ugly.
-# Look at _multipk_update_delete()
-sub _subq_update_delete {
-  my $self = shift;
-  my ($rs, $op, $values) = @_;
-
-  my $rsrc = $rs->result_source;
-
-  # quick check if we got a sane rs on our hands
-  my @pcols = $rsrc->_pri_cols;
-
-  my $sel = $rs->_resolved_attrs->{select};
-  $sel = [ $sel ] unless ref $sel eq 'ARRAY';
-
-  if (
-      join ("\x00", map { join '.', $rs->{attrs}{alias}, $_ } sort @pcols)
-        ne
-      join ("\x00", sort @$sel )
-  ) {
-    $self->throw_exception (
-      '_subq_update_delete can not be called on resultsets selecting columns other than the primary keys'
-    );
-  }
-
-  if (@pcols == 1) {
-    return $self->$op (
-      $rsrc,
-      $op eq 'update' ? $values : (),
-      { $pcols[0] => { -in => $rs->as_query } },
-    );
-  }
-
-  else {
-    return $self->_multipk_update_delete (@_);
-  }
-}
-
-# ANSI SQL does not provide a reliable way to perform a multicol-PK
-# resultset update/delete involving subqueries. So by default resort
-# to simple (and inefficient) delete_all style per-row opearations,
-# while allowing specific storages to override this with a faster
-# implementation.
-#
-sub _multipk_update_delete {
-  return shift->_per_row_update_delete (@_);
-}
-
-# This is the default loop used to delete/update rows for multi PK
-# resultsets, and used by mysql exclusively (because it can't do anything
-# else).
-#
-# We do not use $row->$op style queries, because resultset update/delete
-# is not expected to cascade (this is what delete_all/update_all is for).
-#
-# There should be no race conditions as the entire operation is rolled
-# in a transaction.
-#
-sub _per_row_update_delete {
-  my $self = shift;
-  my ($rs, $op, $values) = @_;
-
-  my $rsrc = $rs->result_source;
-  my @pcols = $rsrc->_pri_cols;
-
-  my $guard = $self->txn_scope_guard;
-
-  # emulate the return value of $sth->execute for non-selects
-  my $row_cnt = '0E0';
-
-  my $subrs_cur = $rs->cursor;
-  my @all_pk = $subrs_cur->all;
-  for my $pks ( @all_pk) {
-
-    my $cond;
-    for my $i (0.. $#pcols) {
-      $cond->{$pcols[$i]} = $pks->[$i];
-    }
-
-    $self->$op (
-      $rsrc,
-      $op eq 'update' ? $values : (),
-      $cond,
-    );
-
-    $row_cnt++;
-  }
-
-  $guard->commit;
-
-  return $row_cnt;
 }
 
 sub _select {
@@ -2232,16 +2251,6 @@ This is an accessor for the default SQL limit dialect used by a particular
 storage driver. Can be overridden by supplying an explicit L</limit_dialect>
 to L<DBIx::Class::Schema/connect>. For a list of available limit dialects
 see L<DBIx::Class::SQLMaker::LimitDialects>.
-
-=head2 sth
-
-=over 4
-
-=item Arguments: $sql
-
-=back
-
-Returns a L<DBI> sth (statement handle) for the supplied SQL.
 
 =cut
 
@@ -2879,7 +2888,7 @@ sub _max_column_bytesize {
       if ($data_type =~ /^(?:
           l? (?:var)? char(?:acter)? (?:\s*varying)?
             |
-          (?:var)? binary (?:\s*varying)? 
+          (?:var)? binary (?:\s*varying)?
             |
           raw
         )\b/x

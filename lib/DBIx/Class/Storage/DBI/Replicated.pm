@@ -56,9 +56,9 @@ be delegated to the replicants, while writes to the master.
 You can force a given query to use a particular storage using the search
 attribute 'force_pool'.  For example:
 
-  my $RS = $schema->resultset('Source')->search(undef, {force_pool=>'master'});
+  my $rs = $schema->resultset('Source')->search(undef, {force_pool=>'master'});
 
-Now $RS will force everything (both reads and writes) to use whatever was setup
+Now $rs will force everything (both reads and writes) to use whatever was setup
 as the master storage.  'master' is hardcoded to always point to the Master,
 but you can also use any Replicant name.  Please see:
 L<DBIx::Class::Storage::DBI::Replicated::Pool> and the replicants attribute for more.
@@ -68,8 +68,12 @@ force read traffic to the master.  In general, you should wrap your statements
 in a transaction when you are reading and writing to the same tables at the
 same time, since your replicants will often lag a bit behind the master.
 
-See L<DBIx::Class::Storage::DBI::Replicated::Instructions> for more help and
-walkthroughs.
+If you have a multi-statement read only transaction you can force it to select
+a random server in the pool by:
+
+  my $rs = $schema->resultset('Source')->search( undef,
+    { force_pool => $db->storage->read_handler->next_storage }
+  );
 
 =head1 DESCRIPTION
 
@@ -277,7 +281,6 @@ my $method_dispatch = {
     _prep_for_execute
     is_datatype_numeric
     _count_select
-    _subq_update_delete
     svp_rollback
     svp_begin
     svp_release
@@ -295,17 +298,14 @@ my $method_dispatch = {
     transaction_depth
     _dbh
     _select_args
-    _dbh_execute_array
+    _dbh_execute_for_fetch
     _sql_maker
-    _per_row_update_delete
     _dbh_execute_inserts_with_no_binds
     _select_args_to_query
     _gen_sql_bind
     _svp_generate_name
-    _multipk_update_delete
     _normalize_connect_info
     _parse_connect_do
-    _execute_array
     savepoints
     _sql_maker_opts
     _conn_pid
@@ -344,6 +344,8 @@ my $method_dispatch = {
     sql_name_sep
 
     _prefetch_autovalues
+
+    _resolve_bindattrs
 
     _max_column_bytesize
     _is_lob_type

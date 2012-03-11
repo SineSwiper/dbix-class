@@ -460,8 +460,6 @@ sub svp_rollback {
   $exec->($self, $name);
 }
 
-=for comment
-
 =head2 txn_scope_guard
 
 An alternative way of transaction handling based on
@@ -680,7 +678,7 @@ re-connect on your schema.
 
 =head2 DBIC_TRACE_PROFILE
 
-If C<DBIC_TRACE_PROFILE> is set, L<DBIx::Class::Storage::PrettyPrint>
+If C<DBIC_TRACE_PROFILE> is set, L<DBIx::Class::Storage::Debug::PrettyPrint>
 will be used to format the output from C<DBIC_TRACE>.  The value it
 is set to is the C<profile> that it will be used.  If the value is a
 filename the file is read with L<Config::Any> and the results are

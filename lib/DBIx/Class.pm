@@ -252,7 +252,7 @@ handle as requested in order to minimise memory usage. It has auto-increment
 support for SQLite, MySQL, PostgreSQL, Oracle, SQL Server and DB2 and is
 known to be used in production on at least the first four, and is fork-
 and thread-safe out of the box (although
-L<your DBD may not be|DBI/Threads_and_Thread_Safety>).
+L<your DBD may not be|DBI/Threads and Thread Safety>).
 
 This project is still under rapid development, so large new features may be
 marked EXPERIMENTAL - such APIs are still usable but may have edge bugs.
@@ -315,6 +315,8 @@ bluefeet: Aran Deltac <bluefeet@cpan.org>
 bphillips: Brian Phillips <bphillips@cpan.org>
 
 boghead: Bryan Beeley <cpan@beeley.org>
+
+brd: Brad Davis <brd@FreeBSD.org>
 
 bricas: Brian Cassidy <bricas@cpan.org>
 
@@ -503,6 +505,8 @@ wdh: Will Hawes
 willert: Sebastian Willert <willert@cpan.org>
 
 wreis: Wallace Reis <wreis@cpan.org>
+
+xenoterracide: Caleb Cushing <xenoterracide@gmail.com>
 
 yrlnry: Mark Jason Dominus <mjd@plover.com>
 

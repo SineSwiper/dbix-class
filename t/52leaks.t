@@ -145,6 +145,11 @@ my @compose_ns_classes;
       cds => [{
         title => 'foo cd',
         year => 1984,
+        tracks => [
+          { title => 't1' },
+          { title => 't2' },
+        ],
+        genre => { name => 'mauve' },
       }],
     });
 
@@ -153,6 +158,15 @@ my @compose_ns_classes;
     my $pg_wcount = $rs->page(4)->pager->total_entries (66);
 
     return ($artist, $pg, $pg_wcount);
+  });
+
+  # same for dbh_do
+  my ($rs_bind_circref, $cond_rowobj) = $schema->storage->dbh_do ( sub {
+    my $row = $_[0]->schema->resultset('Artist')->new({});
+    my $rs = $_[0]->schema->resultset('Artist')->search({
+      name => $row,  # this is deliberately bogus, see FIXME below!
+    });
+    return ($rs, $row);
   });
 
   is ($pager->next_page, 3, 'There is one more page available');
@@ -179,8 +193,42 @@ my @compose_ns_classes;
     $schema->txn_rollback;
   }
 
+  # prefetching
+  my $cds_rs = $schema->resultset('CD');
+  my $cds_with_artist = $cds_rs->search({}, { prefetch => 'artist' });
+  my $cds_with_tracks = $cds_rs->search({}, { prefetch => 'tracks' });
+  my $cds_with_stuff = $cds_rs->search({}, { prefetch => [ 'genre', { artist => { cds => { tracks => 'cd_single' } } } ] });
+
+  # implicit pref
+  my $cds_with_impl_artist = $cds_rs->search({}, { columns => [qw/me.title artist.name/], join => 'artist' });
+
+  # get_column
+  my $getcol_rs = $cds_rs->get_column('me.cdid');
+  my $pref_getcol_rs = $cds_with_stuff->get_column('me.cdid');
+
+  # fire the column getters
+  my @throwaway = $pref_getcol_rs->all;
+
   my $base_collection = {
     resultset => $rs,
+
+    pref_precursor => $cds_rs,
+
+    pref_rs_single => $cds_with_artist,
+    pref_rs_multi => $cds_with_tracks,
+    pref_rs_nested => $cds_with_stuff,
+
+    pref_rs_implicit => $cds_with_impl_artist,
+
+    pref_row_single => $cds_with_artist->next,
+    pref_row_multi => $cds_with_tracks->next,
+    pref_row_nested => $cds_with_stuff->next,
+
+    # even though this does not leak Storable croaks on it :(((
+    #pref_row_implicit => $cds_with_impl_artist->next,
+
+    get_column_rs_plain => $getcol_rs,
+    get_column_rs_pref => $pref_getcol_rs,
 
     # twice so that we make sure only one H::M object spawned
     chained_resultset => $rs->search_rs ({}, { '+columns' => [ 'foo' ] } ),
@@ -188,12 +236,17 @@ my @compose_ns_classes;
 
     row_object => $row_obj,
 
+    mc_row_object => $mc_row_obj,
+
     result_source => $rs->result_source,
 
     result_source_handle => $rs->result_source->handle,
 
     pager_explicit_count => $pager_explicit_count,
 
+    leaky_resultset => $rs_bind_circref,
+    leaky_resultset_cond => $cond_rowobj,
+    leaky_resultset_member => $rs_bind_circref->next,
   };
 
   require Storable;
@@ -201,6 +254,7 @@ my @compose_ns_classes;
     %$base_collection,
     refrozen => Storable::dclone( $base_collection ),
     rerefrozen => Storable::dclone( Storable::dclone( $base_collection ) ),
+    pref_row_implicit => $cds_with_impl_artist->next,
     schema => $schema,
     storage => $storage,
     sql_maker => $storage->sql_maker,
@@ -229,8 +283,13 @@ my @compose_ns_classes;
     $base_collection->{"DBI handle $_"} = $_;
   }
 
-  if ( DBIx::Class::Optional::Dependencies->req_ok_for ('test_leaks') ) {
-    Test::Memory::Cycle::memory_cycle_ok ($base_collection, 'No cycles in the object collection')
+  SKIP: {
+    if ( DBIx::Class::Optional::Dependencies->req_ok_for ('test_leaks') ) {
+      Test::Memory::Cycle::memory_cycle_ok ($base_collection, 'No cycles in the object collection')
+    }
+    else {
+      skip 'Circular ref test needs ' .  DBIx::Class::Optional::Dependencies->req_missing_for ('test_leaks'), 1;
+    }
   }
 
   for (keys %$base_collection) {
@@ -254,8 +313,12 @@ my @compose_ns_classes;
     sub { shift->result_source },
     sub { shift->schema },
     sub { shift->clone },
-    sub { shift->resultset('Artist') },
+    sub { shift->resultset('CD') },
     sub { shift->next },
+    sub { shift->artist },
+    sub { shift->search_related('cds') },
+    sub { shift->next },
+    sub { shift->search_related('artist') },
     sub { shift->result_source },
     sub { shift->resultset },
     sub { shift->create({ name => 'detached' }) },
@@ -331,6 +394,22 @@ for my $moniker ( keys %{DBICTest::Schema->source_registrations || {}} ) {
   is( $SV->REFCNT, 1, "Source instance registered under DBICTest::Schema as $moniker referenced exactly once" );
 
   delete $weak_registry->{DBICTest::Schema->source($moniker)};
+}
+
+# FIXME !!!
+# There is an actual strong circular reference taking place here, but because
+# half of it is in XS no leaktracer sees it, and Devel::FindRef is equally
+# stumped when trying to trace the origin. The problem is:
+#
+# $cond_object --> result_source --> schema --> storage --> $dbh --> {cached_kids}
+#          ^                                                           /
+#           \-------- bound value on prepared/cached STH  <-----------/
+#
+TODO: {
+  local $TODO = 'Not sure how to fix this yet, an entanglment could be an option';
+  my $r = $weak_registry->{'basic leaky_resultset_cond'}{weakref};
+  ok(! defined $r, 'We no longer leak!')
+    or $r->result_source(undef);
 }
 
 for my $slot (sort keys %$weak_registry) {

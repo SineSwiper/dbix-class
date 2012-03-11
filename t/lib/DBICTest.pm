@@ -1,4 +1,4 @@
-package # hide from PAUSE 
+package # hide from PAUSE
     DBICTest;
 
 use strict;
@@ -6,6 +6,7 @@ use warnings;
 use DBICTest::RunMode;
 use DBICTest::Schema;
 use Carp;
+use Path::Class::File ();
 
 =head1 NAME
 
@@ -16,12 +17,12 @@ DBICTest - Library to be used by DBIx::Class test scripts.
   use lib qw(t/lib);
   use DBICTest;
   use Test::More;
-  
+
   my $schema = DBICTest->init_schema();
 
 =head1 DESCRIPTION
 
-This module provides the basic utilities to write tests against 
+This module provides the basic utilities to write tests against
 DBIx::Class.
 
 =head1 METHODS
@@ -37,13 +38,13 @@ DBIx::Class.
     },
   );
 
-This method removes the test SQLite database in t/var/DBIxClass.db 
+This method removes the test SQLite database in t/var/DBIxClass.db
 and then creates a new, empty database.
 
-This method will call deploy_schema() by default, unless the 
+This method will call deploy_schema() by default, unless the
 no_deploy flag is set.
 
-Also, by default, this method will call populate_schema() by 
+Also, by default, this method will call populate_schema() by
 default, unless the no_deploy or no_populate flags are set.
 
 =cut
@@ -53,7 +54,9 @@ sub has_custom_dsn {
 }
 
 sub _sqlite_dbfilename {
-    return "t/var/DBIxClass.db";
+    my $dir = Path::Class::File->new(__FILE__)->dir->parent->subdir('var');
+    $dir->mkpath unless -d "$dir";
+    return $dir->file('DBIxClass.db')->stringify;
 }
 
 sub _sqlite_dbname {
@@ -81,8 +84,6 @@ sub _database {
         "Unable to unlink existing test database file $_ ($!), creation of fresh database / further tests may fail!"
       );
     }
-
-    mkdir("t/var") unless -d "t/var";
 
     return ("dbi:SQLite:${db_file}", '', '', {
       AutoCommit => 1,
@@ -214,10 +215,10 @@ sub init_schema {
 
   DBICTest->deploy_schema( $schema );
 
-This method does one of two things to the schema.  It can either call 
-the experimental $schema->deploy() if the DBICTEST_SQLT_DEPLOY environment 
-variable is set, otherwise the default is to read in the t/lib/sqlite.sql 
-file and execute the SQL within. Either way you end up with a fresh set 
+This method does one of two things to the schema.  It can either call
+the experimental $schema->deploy() if the DBICTEST_SQLT_DEPLOY environment
+variable is set, otherwise the default is to read in the t/lib/sqlite.sql
+file and execute the SQL within. Either way you end up with a fresh set
 of tables for testing.
 
 =cut
@@ -227,13 +228,12 @@ sub deploy_schema {
     my $schema = shift;
     my $args = shift || {};
 
-    if ($ENV{"DBICTEST_SQLT_DEPLOY"}) { 
+    if ($ENV{"DBICTEST_SQLT_DEPLOY"}) {
         $schema->deploy($args);
     } else {
-        open IN, "t/lib/sqlite.sql";
-        my $sql;
-        { local $/ = undef; $sql = <IN>; }
-        close IN;
+        my $filename = Path::Class::File->new(__FILE__)->dir
+          ->file('sqlite.sql')->stringify;
+        my $sql = do { local (@ARGV, $/) = $filename ; <> };
         for my $chunk ( split (/;\s*\n+/, $sql) ) {
           if ( $chunk =~ / ^ (?! --\s* ) \S /xm ) {  # there is some real sql in the chunk - a non-space at the start of the string which is not a comment
             $schema->storage->dbh_do(sub { $_[1]->do($chunk) }) or print "Error on SQL: $chunk\n";
@@ -247,7 +247,7 @@ sub deploy_schema {
 
   DBICTest->populate_schema( $schema );
 
-After you deploy your schema you can use this method to populate 
+After you deploy your schema you can use this method to populate
 the tables with test data.
 
 =cut
@@ -346,7 +346,7 @@ sub populate_schema {
         [ 1, 2 ],
         [ 1, 3 ],
     ]);
-    
+
     $schema->populate('TreeLike', [
         [ qw/id parent name/ ],
         [ 1, undef, 'root' ],
@@ -397,7 +397,7 @@ sub populate_schema {
         [ 1, "Tools" ],
         [ 2, "Body Parts" ],
     ]);
-    
+
     $schema->populate('TypedObject', [
         [ qw/objectid type value/ ],
         [ 1, "pointy", "Awl" ],

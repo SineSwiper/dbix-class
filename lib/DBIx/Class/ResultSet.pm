@@ -74,6 +74,34 @@ However, if it is used in a boolean context it is B<always> true.  So if
 you want to check if a resultset has any results, you must use C<if $rs
 != 0>.
 
+=head1 CUSTOM ResultSet CLASSES THAT USE Moose
+
+If you want to make your custom ResultSet classes with L<Moose>, use a template
+similar to:
+
+    package MyApp::Schema::ResultSet::User;
+
+    use Moose;
+    use namespace::autoclean;
+    use MooseX::NonMoose;
+    extends 'DBIx::Class::ResultSet';
+
+    sub BUILDARGS { $_[2] }
+
+    ...your code...
+
+    __PACKAGE__->meta->make_immutable;
+
+    1;
+
+The L<MooseX::NonMoose> is necessary so that the L<Moose> constructor does not
+clash with the regular ResultSet constructor. Alternatively, you can use:
+
+    __PACKAGE__->meta->make_immutable(inline_constructor => 0);
+
+The L<BUILDARGS|Moose::Manual::Construction/BUILDARGS> is necessary because the
+signature of the ResultSet C<new> is C<< ->new($source, \%args) >>.
+
 =head1 EXAMPLES
 
 =head2 Chaining resultsets
@@ -265,7 +293,7 @@ condition-bound methods L</new>, L</create> and L</find>. The user must ensure
 manually that any value passed to this method will stringify to something the
 RDBMS knows how to deal with. A notable example is the handling of L<DateTime>
 objects, for more info see:
-L<DBIx::Class::Manual::Cookbook/Formatting_DateTime_objects_in_queries>.
+L<DBIx::Class::Manual::Cookbook/Formatting DateTime objects in queries>.
 
 =cut
 
@@ -446,7 +474,7 @@ sub _normalize_selection {
   $attrs->{'+columns'} = $self->_merge_attr($attrs->{'+columns'}, delete $attrs->{include_columns})
     if exists $attrs->{include_columns};
 
-  # columns are always placed first, however 
+  # columns are always placed first, however
 
   # Keep the X vs +X separation until _resolved_attrs time - this allows to
   # delay the decision on whether to use a default select list ($rsrc->columns)
@@ -1513,10 +1541,15 @@ sub _count_subq_rs {
   # extra selectors do not go in the subquery and there is no point of ordering it, nor locking it
   delete @{$sub_attrs}{qw/collapse columns as select _prefetch_selector_range order_by for/};
 
-  # if we multi-prefetch we group_by primary keys only as this is what we would
+  # if we multi-prefetch we group_by something unique, as this is what we would
   # get out of the rs via ->next/->all. We *DO WANT* to clobber old group_by regardless
   if ( keys %{$attrs->{collapse}}  ) {
-    $sub_attrs->{group_by} = [ map { "$attrs->{alias}.$_" } ($rsrc->_pri_cols) ]
+    $sub_attrs->{group_by} = [ map { "$attrs->{alias}.$_" } @{
+      $rsrc->_identifying_column_set || $self->throw_exception(
+        'Unable to construct a unique group_by criteria properly collapsing the '
+      . 'has_many prefetch before count()'
+      );
+    } ]
   }
 
   # Calculate subquery selector
@@ -1709,54 +1742,43 @@ sub first {
 sub _rs_update_delete {
   my ($self, $op, $values) = @_;
 
+  my $cond = $self->{cond};
   my $rsrc = $self->result_source;
+  my $storage = $rsrc->schema->storage;
 
-  my $needs_group_by_subq = $self->_has_resolved_attr (qw/collapse group_by -join/);
-  my $needs_subq = $needs_group_by_subq || $self->_has_resolved_attr(qw/rows offset/);
+  my $attrs = { %{$self->_resolved_attrs} };
 
-  if ($needs_group_by_subq or $needs_subq) {
+  # "needs" is a strong word here - if the subquery is part of an IN clause - no point of
+  # even adding the group_by. It will really be used only when composing a poor-man's
+  # multicolumn-IN equivalent OR set
+  my $needs_group_by_subq = defined $attrs->{group_by};
 
-    # make a new $rs selecting only the PKs (that's all we really need)
-    my $attrs = $self->_resolved_attrs_copy;
+  # simplify the joinmap and maybe decide if a grouping (and thus subquery) is necessary
+  my $relation_classifications;
+  if (ref($attrs->{from}) eq 'ARRAY') {
+    $attrs->{from} = $storage->_prune_unused_joins ($attrs->{from}, $attrs->{select}, $cond, $attrs);
 
-
-    delete $attrs->{$_} for qw/collapse _collapse_order_by select _prefetch_selector_range as/;
-    $attrs->{columns} = [ map { "$attrs->{alias}.$_" } ($self->result_source->_pri_cols) ];
-
-    if ($needs_group_by_subq) {
-      # make sure no group_by was supplied, or if there is one - make sure it matches
-      # the columns compiled above perfectly. Anything else can not be sanely executed
-      # on most databases so croak right then and there
-
-      if (my $g = $attrs->{group_by}) {
-        my @current_group_by = map
-          { $_ =~ /\./ ? $_ : "$attrs->{alias}.$_" }
-          @$g
-        ;
-
-        if (
-          join ("\x00", sort @current_group_by)
-            ne
-          join ("\x00", sort @{$attrs->{columns}} )
-        ) {
-          $self->throw_exception (
-            "You have just attempted a $op operation on a resultset which does group_by"
-            . ' on columns other than the primary keys, while DBIC internally needs to retrieve'
-            . ' the primary keys in a subselect. All sane RDBMS engines do not support this'
-            . ' kind of queries. Please retry the operation with a modified group_by or'
-            . ' without using one at all.'
-          );
-        }
-      }
-      else {
-        $attrs->{group_by} = $attrs->{columns};
-      }
-    }
-
-    my $subrs = (ref $self)->new($rsrc, $attrs);
-    return $self->result_source->storage->_subq_update_delete($subrs, $op, $values);
+    $relation_classifications = $storage->_resolve_aliastypes_from_select_args (
+      [ @{$attrs->{from}}[1 .. $#{$attrs->{from}}] ],
+      $attrs->{select},
+      $cond,
+      $attrs
+    ) unless $needs_group_by_subq;  # we already know we need a group, no point of resolving them
   }
   else {
+    $needs_group_by_subq ||= 1; # if {from} is unparseable assume the worst
+  }
+
+  $needs_group_by_subq ||= exists $relation_classifications->{multiplying};
+
+  # if no subquery - life is easy-ish
+  unless (
+    $needs_group_by_subq
+      or
+    keys %$relation_classifications # if any joins at all - need to wrap a subq
+      or
+    $self->_has_resolved_attr(qw/rows offset/) # limits call for a subq
+  ) {
     # Most databases do not allow aliasing of tables in UPDATE/DELETE. Thus
     # a condition containing 'me' or other table prefixes will not work
     # at all. What this code tries to do (badly) is to generate a condition
@@ -1776,6 +1798,98 @@ sub _rs_update_delete {
       $self->{cond} ? \[$sql, @bind] : (),
     );
   }
+
+  # we got this far - means it is time to wrap a subquery
+  my $idcols = $rsrc->_identifying_column_set || $self->throw_exception(
+    sprintf(
+      "Unable to perform complex resultset %s() without an identifying set of columns on source '%s'",
+      $op,
+      $rsrc->source_name,
+    )
+  );
+  my $existing_group_by = delete $attrs->{group_by};
+
+  # make a new $rs selecting only the PKs (that's all we really need for the subq)
+  delete $attrs->{$_} for qw/collapse _collapse_order_by select _prefetch_selector_range as/;
+  $attrs->{columns} = [ map { "$attrs->{alias}.$_" } @$idcols ];
+  $attrs->{group_by} = \ '';  # FIXME - this is an evil hack, it causes the optimiser to kick in and throw away the LEFT joins
+  my $subrs = (ref $self)->new($rsrc, $attrs);
+
+  if (@$idcols == 1) {
+    return $storage->$op (
+      $rsrc,
+      $op eq 'update' ? $values : (),
+      { $idcols->[0] => { -in => $subrs->as_query } },
+    );
+  }
+  elsif ($storage->_use_multicolumn_in) {
+    # This is hideously ugly, but SQLA does not understand multicol IN expressions
+    my $sql_maker = $storage->sql_maker;
+    my ($sql, @bind) = @${$subrs->as_query};
+    $sql = sprintf ('(%s) IN %s', # the as_query already comes with a set of parenthesis
+      join (', ', map { $sql_maker->_quote ($_) } @$idcols),
+      $sql,
+    );
+
+    return $storage->$op (
+      $rsrc,
+      $op eq 'update' ? $values : (),
+      \[$sql, @bind],
+    );
+  }
+  else {
+    # if all else fails - get all primary keys and operate over a ORed set
+    # wrap in a transaction for consistency
+    # this is where the group_by starts to matter
+    my $subq_group_by;
+    if ($needs_group_by_subq) {
+      $subq_group_by = $attrs->{columns};
+
+      # make sure if there is a supplied group_by it matches the columns compiled above
+      # perfectly. Anything else can not be sanely executed on most databases so croak
+      # right then and there
+      if ($existing_group_by) {
+        my @current_group_by = map
+          { $_ =~ /\./ ? $_ : "$attrs->{alias}.$_" }
+          @$existing_group_by
+        ;
+
+        if (
+          join ("\x00", sort @current_group_by)
+            ne
+          join ("\x00", sort @$subq_group_by )
+        ) {
+          $self->throw_exception (
+            "You have just attempted a $op operation on a resultset which does group_by"
+            . ' on columns other than the primary keys, while DBIC internally needs to retrieve'
+            . ' the primary keys in a subselect. All sane RDBMS engines do not support this'
+            . ' kind of queries. Please retry the operation with a modified group_by or'
+            . ' without using one at all.'
+          );
+        }
+      }
+    }
+
+    my $guard = $storage->txn_scope_guard;
+
+    my @op_condition;
+    for my $row ($subrs->search({}, { group_by => $subq_group_by })->cursor->all) {
+      push @op_condition, { map
+        { $idcols->[$_] => $row->[$_] }
+        (0 .. $#$idcols)
+      };
+    }
+
+    my $res = $storage->$op (
+      $rsrc,
+      $op eq 'update' ? $values : (),
+      \@op_condition,
+    );
+
+    $guard->commit;
+
+    return $res;
+  }
 }
 
 =head2 update
@@ -1794,7 +1908,7 @@ triggers, nor will it update any row object instances derived from this
 resultset (this includes the contents of the L<resultset cache|/set_cache>
 if any). See L</update_all> if you need to execute any on-update
 triggers or cascades defined either by you or a
-L<result component|DBIx::Class::Manual::Component/WHAT_IS_A_COMPONENT>.
+L<result component|DBIx::Class::Manual::Component/WHAT IS A COMPONENT>.
 
 The return value is a pass through of what the underlying
 storage backend returned, and may vary. See L<DBI/execute> for the most
@@ -1807,7 +1921,7 @@ This is unlike the corresponding L<DBIx::Class::Row/update>. The user must
 ensure manually that any value passed to this method will stringify to
 something the RDBMS knows how to deal with. A notable example is the
 handling of L<DateTime> objects, for more info see:
-L<DBIx::Class::Manual::Cookbook/Formatting_DateTime_objects_in_queries>.
+L<DBIx::Class::Manual::Cookbook/Formatting DateTime objects in queries>.
 
 =cut
 
@@ -1862,7 +1976,7 @@ L<in_storage|DBIx::Class::Row/in_storage> status of any row object instances
 derived from this resultset (this includes the contents of the
 L<resultset cache|/set_cache> if any). See L</delete_all> if you need to
 execute any on-delete triggers or cascades defined either by you or a
-L<result component|DBIx::Class::Manual::Component/WHAT_IS_A_COMPONENT>.
+L<result component|DBIx::Class::Manual::Component/WHAT IS A COMPONENT>.
 
 The return value is a pass through of what the underlying storage backend
 returned, and may vary. See L<DBI/execute> for the most common case.
@@ -1991,7 +2105,7 @@ sub populate {
       push(@created, $self->create($item));
     }
     return wantarray ? @created : \@created;
-  } 
+  }
   else {
     my $first = $data->[0];
 
@@ -2720,7 +2834,7 @@ supplied by the database (e.g. an auto_increment primary key column).
 In normal usage, the value of such columns should NOT be included at
 all in the call to C<update_or_new>, even when set to C<undef>.
 
-See also L</find>, L</find_or_create> and L</find_or_new>. 
+See also L</find>, L</find_or_create> and L</find_or_new>.
 
 =cut
 
@@ -4133,6 +4247,8 @@ Adds to the WHERE clause.
 
 Can be overridden by passing C<< { where => undef } >> as an attribute
 to a resultset.
+
+For more complicated where clauses see L<SQL::Abstract/WHERE CLAUSES>.
 
 =back
 

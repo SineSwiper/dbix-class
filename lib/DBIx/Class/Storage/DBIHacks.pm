@@ -61,7 +61,7 @@ sub _prune_unused_joins {
 
 #
 # This is the code producing joined subqueries like:
-# SELECT me.*, other.* FROM ( SELECT me.* FROM ... ) JOIN other ON ... 
+# SELECT me.*, other.* FROM ( SELECT me.* FROM ... ) JOIN other ON ...
 #
 sub _adjust_select_args_for_complex_prefetch {
   my ($self, $from, $select, $where, $attrs) = @_;
@@ -77,7 +77,7 @@ sub _adjust_select_args_for_complex_prefetch {
   my $outer_attrs = { %$attrs };
   delete $outer_attrs->{$_} for qw/where bind rows offset group_by having/;
 
-  my $inner_attrs = { %$attrs };
+  my $inner_attrs = { %$attrs, _is_internal_subuery => 1 };
   delete $inner_attrs->{$_} for qw/for collapse _prefetch_selector_range _collapse_order_by select as/;
 
 
@@ -516,7 +516,11 @@ sub _resolve_column_info {
       },
       -result_source => $rsrc,
       -source_alias => $source_alias,
+      -fq_colname => $col eq $colname ? "$source_alias.$col" : $col,
+      -colname => $colname,
     };
+
+    $return{"$source_alias.$colname"} = $return{$col} if $col eq $colname;
   }
 
   return \%return;
@@ -569,7 +573,7 @@ sub _inner_join_to_node {
   # So it looks like we will have to switch some stuff around.
   # local() is useless here as we will be leaving the scope
   # anyway, and deep cloning is just too fucking expensive
-  # So replace the first hashref in the node arrayref manually 
+  # So replace the first hashref in the node arrayref manually
   my @new_from = ($from->[0]);
   my $sw_idx = { map { (values %$_), 1 } @$switch_branch }; #there's one k/v per join-path
 
@@ -674,6 +678,26 @@ sub _extract_order_criteria {
     local $sql_maker->{quote_char};
     return $parser->($sql_maker, $order_by);
   }
+}
+
+sub _order_by_is_stable {
+  my ($self, $ident, $order_by) = @_;
+
+  my $colinfo = $self->_resolve_column_info(
+    $ident, [ map { $_->[0] } $self->_extract_order_criteria($order_by) ]
+  );
+
+  return undef unless keys %$colinfo;
+
+  my $cols_per_src;
+  $cols_per_src->{$_->{-source_alias}}{$_->{-colname}} = $_ for values %$colinfo;
+
+  for (values %$cols_per_src) {
+    my $src = (values %$_)[0]->{-result_source};
+    return 1 if $src->_identifying_column_set($_);
+  }
+
+  return undef;
 }
 
 1;

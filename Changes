@@ -1,5 +1,35 @@
 Revision history for DBIx::Class
 
+    * New Features / Changes
+        - Issue a warning when DateTime objects are passed to ->search
+        - Fast populate() in void context is now even more efficient by
+          going directly through execute_for_fetch bypassing execute_array
+        - Fix update()/delete() on complex resultsets to no longer fall back
+          to silly row-by-row deletion, construct a massive OR statement
+          instead
+        - Allow complex update/delete operations on sources without a
+          primary key, as long as they have at least one non-nullable
+          unique constraint
+
+    * Fixes
+        - Fix SkipFirst and FirstSkip limit dialects (Informix and Firebird)
+        - Fix "Skimming limit" dialects (Top, FetchFirst) to properly check
+          the order_by criteria for stability
+        - Fix "Skimming limit" dialects (Top, FetchFirst) to propagate
+          non-selected order criteria when part of a larger subquery
+        - A number of corner case fixes of void context populate() with \[]
+        - Fix corner case of forked children disconnecting the parents DBI
+          handle
+        - Fix leakage of $schema on in-memory new_related() calls
+        - Remove useless vestigial pessimization in Ordered.pm for cases 
+          when the position column is part of a unique constraint
+
+    * Misc
+        - Codebase is now trailing-whitespace-free
+        - Cleanup of complex resultset update/delete oprations - storage
+          specific code moved back to ResultSet and replaced by checks
+          of storage capabilities
+
 0.08196 2011-11-29 05:35 (UTC)
     * Fixes
         - Fix tests for DBD::SQLite >= 1.34.

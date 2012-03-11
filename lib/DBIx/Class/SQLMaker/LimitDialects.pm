@@ -114,8 +114,6 @@ sub _RowNumberOver {
         $extra_col,
         $extra_order_sel->{$extra_col},
       );
-
-      $mid_sel .= ', ' . $extra_order_sel->{$extra_col};
     }
   }
 
@@ -169,13 +167,13 @@ sub _SkipFirst {
   return sprintf ('SELECT %s%s%s%s',
     $offset
       ? do {
-         push @{$self->{limit_bind}}, [ $self->__offset_bindtype => $offset];
+         push @{$self->{pre_select_bind}}, [ $self->__offset_bindtype => $offset];
          'SKIP ? '
       }
       : ''
     ,
     do {
-       push @{$self->{limit_bind}}, [ $self->__rows_bindtype => $rows ];
+       push @{$self->{pre_select_bind}}, [ $self->__rows_bindtype => $rows ];
        'FIRST ? '
     },
     $sql,
@@ -199,12 +197,12 @@ sub _FirstSkip {
 
   return sprintf ('SELECT %s%s%s%s',
     do {
-       push @{$self->{limit_bind}}, [ $self->__rows_bindtype => $rows ];
+       push @{$self->{pre_select_bind}}, [ $self->__rows_bindtype => $rows ];
        'FIRST ? '
     },
     $offset
       ? do {
-         push @{$self->{limit_bind}}, [ $self->__offset_bindtype => $offset];
+         push @{$self->{pre_select_bind}}, [ $self->__offset_bindtype => $offset];
          'SKIP ? '
       }
       : ''
@@ -259,11 +257,16 @@ sub _RowNum {
   # ordered by a unique set of columns, it is not safe to use the faster
   # method, and the slower BETWEEN query is used instead
   #
-  # FIXME - this is quite expensive, and doe snot perform caching of any sort
+  # FIXME - this is quite expensive, and does not perform caching of any sort
   # as soon as some of the DQ work becomes viable consider switching this
   # over
-  if ( __order_by_is_unique($rs_attrs) ) {
-
+  if (
+    $rs_attrs->{order_by}
+      and
+    $rs_attrs->{_rsroot_rsrc}->storage->_order_by_is_stable(
+      $rs_attrs->{from}, $rs_attrs->{order_by}
+    )
+  ) {
     # if offset is 0 (first page) the we can skip a subquery
     if (! $offset) {
       push @{$self->{limit_bind}}, [ $self->__rows_bindtype => $rows ];
@@ -299,43 +302,6 @@ EOS
   }
 }
 
-# determine if the supplied order_by contains a unique column (set)
-sub __order_by_is_unique {
-  my $rs_attrs = shift;
-  my $rsrc = $rs_attrs->{_rsroot_rsrc};
-  my $order_by = $rs_attrs->{order_by}
-    || return 0;
-
-  my $storage = $rsrc->schema->storage;
-
-  my @order_by_cols = map { $_->[0] } $storage->_extract_order_criteria($order_by)
-    or return 0;
-
-  my $colinfo =
-    $storage->_resolve_column_info($rs_attrs->{from}, \@order_by_cols);
-
-  my $sources = {
-    map {( "$_" => $_ )} map { $_->{-result_source} } values %$colinfo
-  };
-
-  my $supplied_order = {
-    map { $_ => 1 }
-    grep { exists $colinfo->{$_} and ! $colinfo->{$_}{is_nullable} }
-    @order_by_cols
-  };
-
-  return 0 unless keys %$supplied_order;
-
-  for my $uks (
-    map { values %$_ } map { +{ $_->unique_constraints } } values %$sources
-  ) {
-    return 1
-      unless first { ! exists $supplied_order->{$_} } @$uks;
-  }
-
-  return 0;
-}
-
 # used by _Top and _FetchFirst below
 sub _prep_for_skimming_limit {
   my ( $self, $sql, $rs_attrs ) = @_;
@@ -348,14 +314,30 @@ sub _prep_for_skimming_limit {
   my $requested_order = delete $rs_attrs->{order_by};
   $r{order_by_requested} = $self->_order_by ($requested_order);
 
-  # make up an order unless supplied
-  my $inner_order = ($r{order_by_requested}
-    ? $requested_order
-    : [ map
+  # make up an order unless supplied or sanity check what we are given
+  my $inner_order;
+  if ($r{order_by_requested}) {
+    $self->throw_exception (
+      'Unable to safely perform "skimming type" limit with supplied unstable order criteria'
+    ) unless $rs_attrs->{_rsroot_rsrc}->schema->storage->_order_by_is_stable(
+      $rs_attrs->{from},
+      $requested_order
+    );
+
+    $inner_order = $requested_order;
+  }
+  else {
+    $inner_order = [ map
       { "$rs_attrs->{alias}.$_" }
-      ( $rs_attrs->{_rsroot_rsrc}->_pri_cols )
-    ]
-  );
+      ( @{
+        $rs_attrs->{_rsroot_rsrc}->_identifying_column_set
+          ||
+        $self->throw_exception(sprintf(
+          'Unable to auto-construct stable order criteria for "skimming type" limit '
+        . "dialect based on source '%s'", $rs_attrs->{_rsroot_rsrc}->name) );
+      } )
+    ];
+  }
 
   # localise as we already have all the bind values we need
   {
@@ -390,11 +372,21 @@ sub _prep_for_skimming_limit {
       $r{mid_sel} .= ', ' . $extra_order_sel->{$extra_col};
     }
 
-    # since whatever order bindvals there are, they will be realiased
-    # and need to show up in front of the entire initial inner subquery
-    # *unshift* the selector bind stack to make this happen (horrible,
-    # horrible, but we don't have another mechanism yet)
-    unshift @{$self->{select_bind}}, @{$self->{order_bind}};
+    # Whatever order bindvals there are, they will be realiased and
+    # need to show up in front of the entire initial inner subquery
+    push @{$self->{pre_select_bind}}, @{$self->{order_bind}};
+  }
+
+  # if this is a part of something bigger, we need to add back all
+  # the extra order_by's, as they may be relied upon by the outside
+  # of a prefetch or something
+  if ($rs_attrs->{_is_internal_subuery} and keys %$extra_order_sel) {
+    $r{out_sel} .= sprintf ", $extra_order_sel->{$_} AS $_"
+      for sort
+        { $extra_order_sel->{$a} cmp $extra_order_sel->{$b} }
+          grep { $_ !~ /[^\w\-]/ }  # ignore functions
+          keys %$extra_order_sel
+    ;
   }
 
   # and this is order re-alias magic
@@ -570,63 +562,29 @@ sub _GenericSubQ {
   my $root_rsrc = $rs_attrs->{_rsroot_rsrc};
   my $root_tbl_name = $root_rsrc->name;
 
-  my ($order_by, @rest) = do {
+  my ($first_order_by) = do {
     local $self->{quote_char};
-    $self->_order_by_chunks ($rs_attrs->{order_by})
-  };
-
-  unless (
-    $order_by
-      &&
-    ! @rest
-      &&
-    ( ! ref $order_by
-        ||
-      ( ref $order_by eq 'ARRAY' and @$order_by == 1 )
-    )
-  ) {
-    $self->throw_exception (
-      'Generic Subquery Limit does not work on resultsets without an order, or resultsets '
-    . 'with complex order criteria (multicolumn and/or functions). Provide a single, '
-    . 'unique-column order criteria.'
-    );
-  }
-
-  ($order_by) = @$order_by if ref $order_by;
-
-  $order_by =~ s/\s+ ( ASC|DESC ) \s* $//ix;
-  my $direction = lc ($1 || 'asc');
-
-  my ($unq_sort_col) = $order_by =~ /(?:^|\.)([^\.]+)$/;
-
-  my $inf = $root_rsrc->storage->_resolve_column_info (
-    $rs_attrs->{from}, [$order_by, $unq_sort_col]
+    map { ref $_ ? $_->[0] : $_ } $self->_order_by_chunks ($rs_attrs->{order_by})
+  } or $self->throw_exception (
+    'Generic Subquery Limit does not work on resultsets without an order. Provide a single, '
+  . 'unique-column order criteria.'
   );
 
-  my $ord_colinfo = $inf->{$order_by} || $self->throw_exception("Unable to determine source of order-criteria '$order_by'");
+  $first_order_by =~ s/\s+ ( ASC|DESC ) \s* $//ix;
+  my $direction = lc ($1 || 'asc');
 
-  if ($ord_colinfo->{-result_source}->name ne $root_tbl_name) {
-    $self->throw_exception(sprintf
-      "Generic Subquery Limit order criteria can be only based on the root-source '%s'"
-    . " (aliased as '%s')", $root_rsrc->source_name, $rs_attrs->{alias},
-    );
-  }
+  my ($first_ord_alias, $first_ord_col) = $first_order_by =~ /^ (?: ([^\.]+) \. )? ([^\.]+) $/x;
 
-  # make sure order column is qualified
-  $order_by = "$rs_attrs->{alias}.$order_by"
-    unless $order_by =~ /^$rs_attrs->{alias}\./;
+  $self->throw_exception(sprintf
+    "Generic Subquery Limit order criteria can be only based on the root-source '%s'"
+  . " (aliased as '%s')", $root_rsrc->source_name, $rs_attrs->{alias},
+  ) if ($first_ord_alias and $first_ord_alias ne $rs_attrs->{alias});
 
-  my $is_u;
-  my $ucs = { $root_rsrc->unique_constraints };
-  for (values %$ucs ) {
-    if (@$_ == 1 && "$rs_attrs->{alias}.$_->[0]" eq $order_by) {
-      $is_u++;
-      last;
-    }
-  }
+  $first_ord_alias ||= $rs_attrs->{alias};
+
   $self->throw_exception(
-    "Generic Subquery Limit order criteria column '$order_by' must be unique (no unique constraint found)"
-  ) unless $is_u;
+    "Generic Subquery Limit first order criteria '$first_ord_col' must be unique"
+  ) unless $root_rsrc->_identifying_column_set([$first_ord_col]);
 
   my ($stripped_sql, $in_sel, $out_sel, $alias_map, $extra_order_sel)
     = $self->_subqueried_limit_attrs ($sql, $rs_attrs);
@@ -668,8 +626,8 @@ $order_sql
     $rs_attrs->{alias},
     $root_tbl_name,
     $count_tbl_alias,
-    "$count_tbl_alias.$unq_sort_col",
-    $order_by,
+    "$count_tbl_alias.$first_ord_col",
+    "$first_ord_alias.$first_ord_col",
   ));
 }
 
@@ -684,7 +642,7 @@ $order_sql
 #
 # Returns mangled proto-sql, inner/outer strings of SQL QUOTED selectors
 # with aliases (to be used in whatever select statement), and an alias
-# index hashref of QUOTED SEL => QUOTED ALIAS pairs (to maybe be used 
+# index hashref of QUOTED SEL => QUOTED ALIAS pairs (to maybe be used
 # for string-subst higher up).
 # If an order_by is supplied, the inner select needs to bring out columns
 # used in implicit (non-selected) orders, and the order condition itself

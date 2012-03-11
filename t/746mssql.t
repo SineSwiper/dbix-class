@@ -49,8 +49,9 @@ for my $opts_name (keys %opts) {
       }
       else {
         skip
-"on_connect_call option '$opts_name' not functional in this configuration: $_",
-1;
+          "on_connect_call option '$opts_name' not functional in this configuration: $_",
+          1
+        ;
       }
     };
 
@@ -98,8 +99,6 @@ SQL
           [qw/15   dyrstyggyr/],
         ]);
       }, 'populate with PKs supplied ok' );
-
-
     }
   }
 }
