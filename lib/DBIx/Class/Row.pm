@@ -43,6 +43,20 @@ L<has_one|DBIx::Class::Relationship/has_one> or
 L<might_have|DBIx::Class::Relationship/might_have>)
 relationship accessors of L<DBIx::Class::Row> objects.
 
+=head1 NOTE
+
+All "Row objects" created from a Schema-attached L<DBIx::Class::ResultSet>
+object (such as a typical C<L<search|DBIx::Class::ResultSet/search>-E<gt>L<next|DBIx::Class::ResultSet/next>>
+call) are actually Result instances, based on your application's
+L<Result class|DBIx::Class::Manual::Glossary/Result_class>.
+
+Since these Result classes should be inheriting from L<DBIx::Class::Core>,
+all of the parent methods there should be available to all
+L<Row objects|DBIx::Class::Manual::Glossary/Row>.  This module,
+L<DBIx::Class::Row>, is included in the Core set, but it does not detail
+all of the methods available to Row objects.  For a more comprehensive
+list of those methods, look at L<DBIx::Class::Core/INHERITED METHODS>.
+
 =head1 METHODS
 
 =head2 new
@@ -55,7 +69,7 @@ relationship accessors of L<DBIx::Class::Row> objects.
 
 =item Arguments: \%attrs or \%colsandvalues
 
-=item Returns: A Row object
+=item Returns: A DBIC::Row object
 
 =back
 
@@ -254,6 +268,41 @@ sub new {
 
   return $new;
 }
+
+=head2 $column_accessor
+
+  # Each pair does the same thing
+
+  # (un-inflated, regular column)
+  my $val = $row->get_column('first_name');
+  my $val = $row->first_name;
+  
+  $row->set_column('first_name' => $val);
+  $row->first_name($val);
+
+  # (inflated column via DBIx::Class::InflateColumn::DateTime)
+  my $val = $row->get_inflated_column('last_modified');
+  my $val = $row->last_modified;
+  
+  $row->set_inflated_column('last_modified' => $val);
+  $row->last_modified($val);
+
+=over
+
+=item Arguments: $value?
+
+=item Returns: $value
+
+=back
+
+This is the recommended way to get/set individual columns, as it will
+call L<get|DBIx::Class::InflateColumn/get_inflated_column>/L<set_inflated_column|DBIx::Class::InflateColumn/set_inflated_column>
+as necessary.  Only call the basic L<get|/get_column>/L<set_column|/set_column>
+methods if you absolutely need the raw value from storage.
+
+The actual method name is based on the L<accessor|DBIx::Class::ResultSource/accessor>
+name given in the table definition.  Like L</set_column>, this will
+not store the data until L</insert> or L</update> is called on the row.
 
 =head2 insert
 
@@ -824,43 +873,7 @@ the column is marked as dirty for when you next call L</update>.
 If passed an object or reference as a value, this method will happily
 attempt to store it, and a later L</insert> or L</update> will try and
 stringify/numify as appropriate. To set an object to be deflated
-instead, see L</set_inflated_columns>, or better yet, use L</$col>.
-
-=head2 $col
-
-  # Each pair does the same thing
-
-  # (un-inflated, regular column)
-  my $val = $row->get_column('first_name');
-  my $val = $row->first_name;
-  
-  $row->set_column('first_name' => $val);
-  $row->first_name($val);
-
-  # (inflated column via DBIx::Class::InflateColumn::DateTime)
-  my $val = $row->get_inflated_column('last_modified');
-  my $val = $row->last_modified;
-  
-  $row->set_inflated_column('last_modified' => $val);
-  $row->last_modified($val);
-
-=over
-
-=item Arguments: $value?
-
-=item Returns: $value
-
-=back
-
-This is a friendlier helper method to get/set individual columns, based
-on the L<accessor|DBIx::Class::ResultSource/accessor> name given in the table
-definition.  Like L</set_column>, this will not store the data until
-L</insert> or L</update> is called on the row.
-
-This is the recommended way to get/set individual columns, as it will
-call L<get|DBIx::Class::InflateColumn/get_inflated_column>/L<set_inflated_column|DBIx::Class::InflateColumn/set_inflated_column>
-as necessary.  Only call the basic L<get|/get_column>/L<set_column|/set_column>
-methods if you absolutely need the raw value from storage.
+instead, see L</set_inflated_columns>, or better yet, use L</$column_accessor>.
 
 =cut
 
@@ -1471,70 +1484,6 @@ sub throw_exception {
     DBIx::Class::Exception->throw(@_);
   }
 }
-
-=head1 INHERITED METHODS
-
-All Row objects inherit methods from L<DBIx::Class::Core>.  Look for the core modules'
-documentation for a full list of methods available.  Only the more useful ones are
-listed here.
-
-=head2 id
-
-  my @pk = $row->id;
-
-=over
-
-=item Arguments: none
-
-=item Returns: A list of primary key values
-
-=back
-
-Returns the primary key(s) for a row. Can't be called as a class method.
-Actually implemented in L<DBIx::Class::PK>
-
-=head2 Relationships
-
-=over 4
-=item L<related_resultset|DBIx::Class::Relationship::Base/related_resultset>
-=item L<$rel|DBIx::Class::Relationship::Base/$rel>
-=item L<search_related|DBIx::Class::Relationship::Base/search_related>
-=item L<search_related_rs|DBIx::Class::Relationship::Base/search_related_rs>
-=item L<*_related|DBIx::Class::Relationship::Base/count_related>
-=item L<add_to_$rel|DBIx::Class::Relationship::Base/add_to_$rel>
-=item L<set_$rel|DBIx::Class::Relationship::Base/set_$rel>
-=item L<remove_from_$rel|DBIx::Class::Relationship::Base/remove_from_$rel>
-=back
-
-See L<DBIx::Class::Relationship::Base>.
-
-=head2 ResultSource
-
-=over 4
-=item L<has_column|DBIx::Class::ResultSource/has_column>
-=item L<column_info|DBIx::Class::ResultSource/column_info>
-=item L<columns|DBIx::Class::ResultSource/columns>
-=item L<columns_info|DBIx::Class::ResultSource/columns_info>
-=item L<primary_columns|DBIx::Class::ResultSource/primary_columns>
-=item L<sequence|DBIx::Class::ResultSource/sequence>
-=item L<unique_constraints|DBIx::Class::ResultSource/unique_constraints>
-=item L<unique_constraint_names|DBIx::Class::ResultSource/unique_constraint_names>
-=item L<unique_constraint_columns|DBIx::Class::ResultSource/unique_constraint_columns>
-=item L<resultset|DBIx::Class::ResultSource/resultset>
-=item L<resultset_attributes|DBIx::Class::ResultSource/resultset_attributes>
-=item L<name|DBIx::Class::ResultSource/name>
-=item L<from|DBIx::Class::ResultSource/from>
-=item L<schema|DBIx::Class::ResultSource/schema>
-=item L<storage|DBIx::Class::ResultSource/storage>
-=item L<relationships|DBIx::Class::ResultSource/relationships>
-=item L<relationship_info|DBIx::Class::ResultSource/relationship_info>
-=item L<has_relationship|DBIx::Class::ResultSource/has_relationship>
-=item L<reverse_relationship_info|DBIx::Class::ResultSource/reverse_relationship_info>
-=item L<related_source|DBIx::Class::ResultSource/related_source>
-=item L<related_class|DBIx::Class::ResultSource/related_class>
-=back
-
-See L<DBIx::Class::ResultSource>.
 
 =head1 AUTHORS
 

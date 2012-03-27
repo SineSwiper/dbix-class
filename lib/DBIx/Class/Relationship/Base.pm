@@ -412,7 +412,7 @@ sub register_relationship { }
 Returns a L<DBIx::Class::ResultSet> for the relationship named
 $relationship_name.
 
-=head2 $rel
+=head2 $relationship_accessor
 
 =over 4
 
@@ -425,13 +425,11 @@ $relationship_name.
   # These pairs do the same thing
   $row = $cd->related_resultset('artist')->single;  # has_one relationship
   $row = $cd->artist;
-  
   $rs = $cd->related_resultset('tracks');           # has_many relationship
   $rs = $cd->tracks;
 
-This is a friendlier helper method to transverse through the
-relationship, based on the L</accessor> name given in the
-relationship definition.
+This is the recommended way to transverse through relationships, based
+on the L</accessor> name given in the relationship definition.
 
 This will return either a L<Row|DBIx::Class::Row> or a
 L<ResultSet|DBIx::Class::ResultSet>, depending on if the relationship is

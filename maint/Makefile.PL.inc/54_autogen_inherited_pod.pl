@@ -1,6 +1,17 @@
-# FIXME Disabled due to unsolved issues, ask theorbtwo
-#require Module::Install::Pod::Inherit;
-#PodInherit();
+# generate the inherit pods as both a clone-dir step, and a makefile distdir step
+require DBIx::Class::Optional::Dependencies;
+DBIx::Class::Optional::Dependencies->_gen_inherit_pods();
+
+postamble <<"EOP";
+
+.PHONY: dbic_clonedir_gen_inherit_pods
+
+create_distdir : dbic_clonedir_gen_inherit_pods
+
+dbic_clonedir_gen_inherit_pods :
+\t\$(ABSPERL) -Ilib -MDBIx::Class::Optional::Dependencies -e "DBIx::Class::Optional::Dependencies->_gen_inherit_pods()"
+
+EOP
 
 # keep the Makefile.PL eval happy
 1;

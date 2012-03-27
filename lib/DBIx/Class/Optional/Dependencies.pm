@@ -107,7 +107,7 @@ my $rdbms_firebird_odbc = {
 
 my $reqs = {
   dist => {
-    #'Module::Install::Pod::Inherit' => '0.01',
+    'Pod::Inherit' => '0.11',
   },
 
   replicated => {
@@ -866,5 +866,51 @@ EOD
   print $fh join ("\n\n", @chunks);
   close ($fh);
 }
+
+# To keep the Makefile command small, this is also included to be called by the author only
+sub _gen_inherit_pods {
+  require Pod::Inherit;
+
+  # Takes long enough to warrant a status message
+  print "Regenerating new PODs via Pod::Inherit\n";
+
+  Pod::Inherit->new({
+     input_files       => 'lib',
+     out_dir           => 'blib/lib',
+     force_permissions => 1,
+     class_map         => {
+        "DBIx::Class::Relationship::HasMany"    => "DBIx::Class::Relationship",
+        "DBIx::Class::Relationship::HasOne"     => "DBIx::Class::Relationship",
+        "DBIx::Class::Relationship::BelongsTo"  => "DBIx::Class::Relationship",
+        "DBIx::Class::Relationship::ManyToMany" => "DBIx::Class::Relationship",
+        "DBIx::Class::ResultSourceProxy"        => "DBIx::Class::ResultSource",
+        "DBIx::Class::ResultSourceProxy::Table" => "DBIx::Class::ResultSource",
+     },
+     # skip the deprecated classes that give out *DEPRECATED* warnings
+     skip_classes      => [ qw(
+        lib/DBIx/Class/Storage/DBI/Sybase/MSSQL.pm
+        lib/DBIx/Class/Serialize/Storable.pm
+        lib/DBIx/Class/ResultSetManager.pm
+        lib/DBIx/Class/InflateColumn/File.pm
+        lib/DBIx/Class/DB.pm
+        lib/DBIx/Class/CDBICompat/
+        lib/DBIx/Class/CDBICompat.pm
+     ),
+        'lib/DBIx/Class/Storage/DBI/Replicated/Pool.pm',  # this one just errors out with: The 'add_attribute' method cannot be called on an immutable instance
+        'lib/DBIx/Class/Relationship.pm',                 # it already documents its own inheritors
+     ],
+     # these appear everywhere, and are typically lower-level methods not used by the general user
+     skip_inherits     => [ qw/
+        DBIx::Class
+        DBIx::Class::Componentised
+        Class::C3::Componentised
+        DBIx::Class::AccessorGroup
+        Class::Accessor::Grouped
+        Moose::Object
+        Exporter
+     / ],
+     method_format     => 'L<%m|%c/%m>'
+  })->write_pod;
+}  
 
 1;
