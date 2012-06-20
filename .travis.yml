@@ -1,0 +1,21 @@
+language: perl
+perl:
+	- "5.16"
+	- "5.14"
+	- "5.12"
+	- "5.10"
+
+# whitelist
+branches:
+  only:
+    - master
+
+notifications:
+  irc:
+    channels:
+      - "irc.perl.org#dbix-class"
+    on_success: always
+    on_failure: always
+    template:
+      - "%{repository_url} (%{commit}): %{message}"
+      - "Build details: %{build_url}"
