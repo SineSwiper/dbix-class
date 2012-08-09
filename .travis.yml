@@ -1,5 +1,6 @@
 language: perl
 perl:
+   - "5.16"
    - "5.14"
    - "5.12"
    - "5.10"
@@ -13,17 +14,9 @@ install:
    - cpanm --quiet --notest Module::Install
    - perl Makefile.PL --alldeps
    - make listalldeps | cpanm --quiet --notest
-   
-   ### FIXME: Development releases need a nicer way of installing ###
-   - cpanm FREW/SQL-Abstract-1.73_01.tar.gz
 script:
    # Make sure we don't run Makefile.PL without --alldeps
    - make test
-
-# whitelist
-branches:
-   only:
-     - master
 
 notifications:
    irc: "irc.perl.org#dbix-class"
