@@ -276,7 +276,7 @@ sub new {
   # (un-inflated, regular column)
   my $val = $row->get_column('first_name');
   my $val = $row->first_name;
-  
+
   $row->set_column('first_name' => $val);
   $row->first_name($val);
 
