@@ -865,11 +865,11 @@ EOD
   open (my $fh, '>', $podfn) or Carp::croak "Unable to write to $podfn: $!";
   print $fh join ("\n\n", @chunks);
   close ($fh);
-  
+
   # We'll also autogen the ResultClass.pod file to keep it out of git's hair
   # and prevent any complications with P:I's further mangling.
   $podfn =~ s/Optional.Dependencies/ResultClass/;
-  
+
   open ($fh, '>', $podfn) or Carp::croak "Unable to write to $podfn: $!";
   # (The first line is required, so that P:I isn't afraid of touching it.)
   print $fh <<'EOF';
@@ -1000,6 +1000,6 @@ sub _gen_inherit_pods {
      },
      method_format     => 'L<%m|%c/%m>',
   })->write_pod;
-}  
+}
 
 1;

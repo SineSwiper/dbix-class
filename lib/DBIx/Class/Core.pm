@@ -29,7 +29,7 @@ DBIx::Class::Core - Core set of DBIx::Class modules
 
 This class just inherits from the various modules that make up the
 L<DBIx::Class> core features.  You almost certainly want these.
- 
+
 The core modules currently are:
 
 =over 4

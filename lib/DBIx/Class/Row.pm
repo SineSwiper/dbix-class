@@ -283,7 +283,7 @@ sub new {
   # (inflated column via DBIx::Class::InflateColumn::DateTime)
   my $val = $row->get_inflated_column('last_modified');
   my $val = $row->last_modified;
-  
+
   $row->set_inflated_column('last_modified' => $val);
   $row->last_modified($val);
 
