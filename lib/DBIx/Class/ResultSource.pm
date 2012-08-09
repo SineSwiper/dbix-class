@@ -1938,7 +1938,7 @@ should not be used.  It will be removed before 1.0.
 
 =head1 AUTHORS
 
-Matt S. Trout <mst@shadowcatsystems.co.uk>
+See L<DBIx::Class/CONTRIBUTORS>
 
 =head1 LICENSE
 

@@ -165,13 +165,10 @@ Examples and explaining paragraphs can be repeated as necessary.
 
 =head1 AUTHORS
 
-see L<DBIx::Class>
+See L<DBIx::Class/CONTRIBUTORS>
 
 =head1 LICENSE
 
 You may distribute this code under the same terms as Perl itself.
 
 =cut
-
-
-

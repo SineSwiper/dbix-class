@@ -474,9 +474,7 @@ sub _resultset {
 
 =head1 AUTHORS
 
-Luke Saunders <luke.saunders@gmail.com>
-
-Jess Robinson
+See L<DBIx::Class/CONTRIBUTORS>
 
 =head1 LICENSE
 

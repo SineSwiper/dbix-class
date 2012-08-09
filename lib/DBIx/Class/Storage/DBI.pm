@@ -3009,12 +3009,12 @@ be with raw DBI.
 
 =head1 AUTHORS
 
-Matt S. Trout <mst@shadowcatsystems.co.uk>
-
-Andy Grundman <andy@hybridized.org>
+See L<DBIx::Class/CONTRIBUTORS>
 
 =head1 LICENSE
 
 You may distribute this code under the same terms as Perl itself.
+
+=cut
 
 =cut

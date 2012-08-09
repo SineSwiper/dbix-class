@@ -74,7 +74,7 @@ The deserializing hook called on the object during deserialization.
 
 =head1 AUTHORS
 
-David Kamholz <dkamholz@cpan.org>
+See L<DBIx::Class/CONTRIBUTORS>
 
 =head1 LICENSE
 

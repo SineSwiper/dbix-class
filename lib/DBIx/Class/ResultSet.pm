@@ -4343,6 +4343,14 @@ L<DBIx::Class::Manual::Cookbook>.
 Set to 'update' for a SELECT ... FOR UPDATE or 'shared' for a SELECT
 ... FOR SHARED.
 
+=head1 AUTHORS
+
+See L<DBIx::Class/CONTRIBUTORS>
+
+=head1 LICENSE
+
+You may distribute this code under the same terms as Perl itself.
+
 =cut
 
 1;

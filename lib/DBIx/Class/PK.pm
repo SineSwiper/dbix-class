@@ -138,7 +138,7 @@ sub _mk_ident_cond {
 
 =head1 AUTHORS
 
-Matt S. Trout <mst@shadowcatsystems.co.uk>
+See L<DBIx::Class/CONTRIBUTORS>
 
 =head1 LICENSE
 

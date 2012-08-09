@@ -759,8 +759,7 @@ sub _source_exists
 
 =head1 AUTHORS
 
-Jess Robinson <castaway@desert-island.me.uk>
-Luke Saunders <luke@shadowcatsystems.co.uk>
+See L<DBIx::Class/CONTRIBUTORS>
 
 =head1 LICENSE
 
