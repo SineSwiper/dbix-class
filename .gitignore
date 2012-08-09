@@ -6,6 +6,7 @@ META.*
 MYMETA.*
 Makefile
 Makefile.old
+README
 _build/
 blib/
 inc/

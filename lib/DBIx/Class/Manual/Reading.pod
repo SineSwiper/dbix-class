@@ -89,7 +89,7 @@ method arguments, use with caution.
 
 =item *
 
-L<$obj|Data::Object> - Reference to the source class or object definition
+L<$obj|DBIx::Class> - Reference to the source class or object definition
 
 All arguments and return values should provide a link to the object's
 class documentation or definition, even if it's the same class as the current

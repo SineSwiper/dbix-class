@@ -137,7 +137,7 @@ in this class or C<cond> specifies a reference to a join condition.
 =item accessor_name
 
 This argument is the name of the method you can call on a
-L<DBIx::Class::ResultClass> object to retrieve the instance of the foreign
+L<Result|DBIx::Class::ResultClass> object to retrieve the instance of the foreign
 class matching this relationship. This is often called the
 C<relation(ship) name>.
 
@@ -248,7 +248,7 @@ specifies a reference to a join condition.
 =item accessor_name
 
 This argument is the name of the method you can call on a
-L<DBIx::Class::ResultClass> object to retrieve a resultset of the related
+L<Result|DBIx::Class::ResultClass> object to retrieve a resultset of the related
 class restricted to the ones related to the result object. In list
 context it returns the result objects. This is often called the
 C<relation(ship) name>.
@@ -370,7 +370,7 @@ condition.
 =item accessor_name
 
 This argument is the name of the method you can call on a
-L<DBIx::Class::ResultClass> object to retrieve the instance of the foreign
+L<Result|DBIx::Class::ResultClass> object to retrieve the instance of the foreign
 class matching this relationship. This is often called the
 C<relation(ship) name>.
 
@@ -465,7 +465,7 @@ condition.
 =item accessor_name
 
 This argument is the name of the method you can call on a
-L<DBIx::Class::ResultClass> object to retrieve the instance of the foreign
+L<Result|DBIx::Class::ResultClass> object to retrieve the instance of the foreign
 class matching this relationship. This is often called the
 C<relation(ship) name>.
 
@@ -562,7 +562,7 @@ C<related_resultset> and similar methods which operate on true relationships.
 =item accessor_name
 
 This argument is the name of the method you can call on a
-L<DBIx::Class::ResultClass> object to retrieve the rows matching this
+L<Result|DBIx::Class::ResultClass> object to retrieve the rows matching this
 relationship.
 
 On a many_to_many, unlike other relationships, this cannot be used in

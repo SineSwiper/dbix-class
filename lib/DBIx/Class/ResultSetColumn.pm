@@ -286,7 +286,7 @@ sub min {
 
 =item Arguments: none
 
-=item Return Value: $resultset
+=item Return Value: L<$resultset|DBIx::Class::ResultSet>
 
 =back
 
@@ -325,7 +325,7 @@ sub max {
 
 =item Arguments: none
 
-=item Return Value: $resultset
+=item Return Value: L<$resultset|DBIx::Class::ResultSet>
 
 =back
 
@@ -364,7 +364,7 @@ sub sum {
 
 =item Arguments: none
 
-=item Return Value: $resultset
+=item Return Value: L<$resultset|DBIx::Class::ResultSet>
 
 =back
 
@@ -413,7 +413,7 @@ sub func {
 
 =item Arguments: $function
 
-=item Return Value: $resultset
+=item Return Value: L<$resultset|DBIx::Class::ResultSet>
 
 =back
 

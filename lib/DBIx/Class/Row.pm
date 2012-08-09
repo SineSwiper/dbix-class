@@ -41,7 +41,7 @@ as well as invocations of 'single' (
 L<belongs_to|DBIx::Class::Relationship/belongs_to>,
 L<has_one|DBIx::Class::Relationship/has_one> or
 L<might_have|DBIx::Class::Relationship/might_have>)
-relationship accessors of L<DBIx::Class::ResultClass> objects.
+relationship accessors of L<Result|DBIx::Class::ResultClass> objects.
 
 =head1 NOTE
 
@@ -55,7 +55,7 @@ all of the parent methods there should be available to all
 L<Result objects|DBIx::Class::Manual::Glossary/Result>.  This module,
 L<DBIx::Class::Row>, is included in the Core set, but it does not detail
 all of the methods available to Result objects.  For a more comprehensive
-list of those methods, look at L<DBIx::Class::Result/INHERITED METHODS>.
+list of those methods, look at L<DBIx::Class::ResultClass/INHERITED METHODS>.
 
 =head1 METHODS
 
@@ -1155,9 +1155,9 @@ sub store_column {
 
 =over
 
-=item Arguments: $result_source, \%columndata, \%prefetcheddata
+=item Arguments: L<$result_source|DBIx::Class::ResultSource>, \%columndata, \%prefetcheddata
 
-=item Return Value: A Result object
+=item Return Value: L<$result|DBIx::Class::ResultClass>
 
 =back
 
@@ -1306,9 +1306,9 @@ sub is_column_changed {
 
 =over
 
-=item Arguments: $result_source_instance
+=item Arguments: L<$result_source?|DBIx::Class::ResultSource>
 
-=item Return Value: a ResultSource instance
+=item Return Value: L<$result_source|DBIx::Class::ResultSource>
 
 =back
 
