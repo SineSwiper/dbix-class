@@ -118,7 +118,7 @@ sub new {
 
 =item Arguments: none
 
-=item Return Value: \[ $sql, @bind ]
+=item Return Value: \[ $sql, L<@bind|DBI/Placeholders-and-Bind-Values> ]
 
 =back
 
@@ -171,7 +171,7 @@ Returns all values of the column in the resultset (or C<undef> if
 there are none).
 
 Much like L<DBIx::Class::ResultSet/all> but returns values rather
-than row objects.
+than result objects.
 
 =cut
 

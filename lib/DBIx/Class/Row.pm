@@ -34,28 +34,28 @@ DBIx::Class::Row - Basic row methods
 This class is responsible for defining and doing basic operations on rows
 derived from L<DBIx::Class::ResultSource> objects.
 
-Row objects are returned from L<DBIx::Class::ResultSet>s using the
+Result objects are returned from L<DBIx::Class::ResultSet>s using the
 L<create|DBIx::Class::ResultSet/create>, L<find|DBIx::Class::ResultSet/find>,
 L<next|DBIx::Class::ResultSet/next> and L<all|DBIx::Class::ResultSet/all> methods,
 as well as invocations of 'single' (
 L<belongs_to|DBIx::Class::Relationship/belongs_to>,
 L<has_one|DBIx::Class::Relationship/has_one> or
 L<might_have|DBIx::Class::Relationship/might_have>)
-relationship accessors of L<DBIx::Class::Row> objects.
+relationship accessors of L<DBIx::Class::ResultClass> objects.
 
 =head1 NOTE
 
 All "Row objects" created from a Schema-attached L<DBIx::Class::ResultSet>
 object (such as a typical C<L<search|DBIx::Class::ResultSet/search>-E<gt>L<next|DBIx::Class::ResultSet/next>>
 call) are actually Result instances, based on your application's
-L<Result class|DBIx::Class::Manual::Glossary/Result_class>.
+L<Result class|DBIx::Class::Manual::Glossary/Result class>.
 
 Since these Result classes should be inheriting from L<DBIx::Class::Core>,
 all of the parent methods there should be available to all
-L<Row objects|DBIx::Class::Manual::Glossary/Row>.  This module,
+L<Result objects|DBIx::Class::Manual::Glossary/Result>.  This module,
 L<DBIx::Class::Row>, is included in the Core set, but it does not detail
-all of the methods available to Row objects.  For a more comprehensive
-list of those methods, look at L<DBIx::Class::Core/INHERITED METHODS>.
+all of the methods available to Result objects.  For a more comprehensive
+list of those methods, look at L<DBIx::Class::Result/INHERITED METHODS>.
 
 =head1 METHODS
 
@@ -69,11 +69,11 @@ list of those methods, look at L<DBIx::Class::Core/INHERITED METHODS>.
 
 =item Arguments: \%attrs or \%colsandvalues
 
-=item Returns: A DBIC::Row object
+=item Return Value: L<$result|DBIx::Class::ResultClass>
 
 =back
 
-While you can create a new row object by calling C<new> directly on
+While you can create a new result object by calling C<new> directly on
 this class, you are better off calling it on a
 L<DBIx::Class::ResultSet> object.
 
@@ -291,7 +291,7 @@ sub new {
 
 =item Arguments: $value?
 
-=item Returns: $value
+=item Return Value: $value
 
 =back
 
@@ -312,7 +312,7 @@ not store the data until L</insert> or L</update> is called on the row.
 
 =item Arguments: none
 
-=item Returns: The Row object
+=item Return Value: L<$result|DBIx::Class::ResultClass>
 
 =back
 
@@ -320,7 +320,7 @@ Inserts an object previously created by L</new> into the database if
 it isn't already in there. Returns the object itself. To insert an
 entirely new row into the database, use L<DBIx::Class::ResultSet/create>.
 
-To fetch an uninserted row object, call
+To fetch an uninserted result object, call
 L<new|DBIx::Class::ResultSet/new> on a resultset.
 
 This will also insert any uninserted, related objects held inside this
@@ -465,7 +465,7 @@ sub insert {
 
 =item Arguments: none or 1|0
 
-=item Returns: 1|0
+=item Return Value: 1|0
 
 =back
 
@@ -474,7 +474,7 @@ not. This is set to true when L<DBIx::Class::ResultSet/find>,
 L<DBIx::Class::ResultSet/create> or L<DBIx::Class::ResultSet/insert>
 are used.
 
-Creating a row object using L<DBIx::Class::ResultSet/new>, or calling
+Creating a result object using L<DBIx::Class::ResultSet/new>, or calling
 L</delete> on one, sets it to false.
 
 =cut
@@ -493,11 +493,11 @@ sub in_storage {
 
 =item Arguments: none or a hashref
 
-=item Returns: The Row object
+=item Return Value: L<$result|DBIx::Class::ResultClass>
 
 =back
 
-Throws an exception if the row object is not yet in the database,
+Throws an exception if the result object is not yet in the database,
 according to L</in_storage>.
 
 This method issues an SQL UPDATE query to commit any changes to the
@@ -522,7 +522,7 @@ contain scalar references, e.g.:
   $row->update({ last_modified => \'NOW()' });
 
 The update will pass the values verbatim into SQL. (See
-L<SQL::Abstract> docs).  The values in your Row object will NOT change
+L<SQL::Abstract> docs).  The values in your Result object will NOT change
 as a result of the update call, if you want the object to be updated
 with the actual values from the database, call L</discard_changes>
 after the update.
@@ -571,7 +571,7 @@ sub update {
 
 =item Arguments: none
 
-=item Returns: The Row object
+=item Return Value: L<$result|DBIx::Class::ResultClass>
 
 =back
 
@@ -595,7 +595,7 @@ main row first> and only then attempts to delete any remaining related
 rows.
 
 If you delete an object within a txn_do() (see L<DBIx::Class::Storage/txn_do>)
-and the transaction subsequently fails, the row object will remain marked as
+and the transaction subsequently fails, the result object will remain marked as
 not being in storage. If you know for a fact that the object is still in
 storage (i.e. by inspecting the cause of the transaction's failure), you can
 use C<< $obj->in_storage(1) >> to restore consistency between the object and
@@ -637,14 +637,14 @@ sub delete {
 
 =item Arguments: $columnname
 
-=item Returns: The value of the column
+=item Return Value: The value of the column
 
 =back
 
 Throws an exception if the column name given doesn't exist according
 to L<has_column|DBIx::Class::ResultSource/has_column>.
 
-Returns a raw column value from the row object, if it has already
+Returns a raw column value from the result object, if it has already
 been fetched from the database or set by an accessor.
 
 If an L<inflated value|DBIx::Class::InflateColumn> has been set, it
@@ -681,7 +681,7 @@ sub get_column {
 
 =item Arguments: $columnname
 
-=item Returns: 0|1
+=item Return Value: 0|1
 
 =back
 
@@ -705,7 +705,7 @@ sub has_column_loaded {
 
 =item Arguments: none
 
-=item Returns: A hash of columnname, value pairs.
+=item Return Value: A hash of columnname, value pairs.
 
 =back
 
@@ -735,7 +735,7 @@ sub get_columns {
 
 =item Arguments: none
 
-=item Returns: A hash of column, value pairs
+=item Return Value: A hash of column, value pairs
 
 =back
 
@@ -760,7 +760,7 @@ sub get_dirty_columns {
 
 =item Arguments: $columnname
 
-=item Returns: undefined
+=item Return Value: undefined
 
 =back
 
@@ -800,7 +800,7 @@ sub make_column_dirty {
 
 =item Arguments: none
 
-=item Returns: A hash of column, object|value pairs
+=item Return Value: A hash of column, object|value pairs
 
 =back
 
@@ -863,7 +863,7 @@ sub _is_column_numeric {
 
 =item Arguments: $columnname, $value
 
-=item Returns: $value
+=item Return Value: $value
 
 =back
 
@@ -973,7 +973,7 @@ sub _track_storage_value {
 
 =item Arguments: \%columndata
 
-=item Returns: The Row object
+=item Return Value: L<$result|DBIx::Class::ResultClass>
 
 =back
 
@@ -999,16 +999,16 @@ sub set_columns {
 
 =item Arguments: \%columndata
 
-=item Returns: The Row object
+=item Return Value: L<$result|DBIx::Class::ResultClass>
 
 =back
 
 Sets more than one column value at once. Any inflated values are
 deflated and the raw values stored.
 
-Any related values passed as Row objects, using the relation name as a
+Any related values passed as Result objects, using the relation name as a
 key, are reduced to the appropriate foreign key values and stored. If
-instead of related row objects, a hashref of column, value data is
+instead of related result objects, a hashref of column, value data is
 passed, will create the related object first then store.
 
 Will even accept arrayrefs of data as a value to a
@@ -1056,7 +1056,7 @@ sub set_inflated_columns {
 
 =item Arguments: \%replacementdata
 
-=item Returns: The Row object copy
+=item Return Value: L<$result|DBIx::Class::ResultClass> copy
 
 =back
 
@@ -1127,7 +1127,7 @@ sub copy {
 
 =item Arguments: $columnname, $value
 
-=item Returns: The value sent to storage
+=item Return Value: The value sent to storage
 
 =back
 
@@ -1135,7 +1135,7 @@ Set a raw value for a column without marking it as changed. This
 method is used internally by L</set_column> which you should probably
 be using.
 
-This is the lowest level at which data is set on a row object,
+This is the lowest level at which data is set on a result object,
 extend this method to catch all data setting methods.
 
 =cut
@@ -1157,12 +1157,12 @@ sub store_column {
 
 =item Arguments: $result_source, \%columndata, \%prefetcheddata
 
-=item Returns: A Row object
+=item Return Value: A Result object
 
 =back
 
 All L<DBIx::Class::ResultSet> methods that retrieve data from the
-database and turn it into row objects call this method.
+database and turn it into result objects call this method.
 
 Extend this method in your Result classes to hook into this process,
 for example to rebless the result into a different class.
@@ -1234,7 +1234,7 @@ sub inflate_result {
 
 =item Arguments: none
 
-=item Returns: Result of update or insert operation
+=item Return Value: Result of update or insert operation
 
 =back
 
@@ -1265,7 +1265,7 @@ sub update_or_insert {
 
 =item Arguments: none
 
-=item Returns: 0|1 or @columnnames
+=item Return Value: 0|1 or @columnnames
 
 =back
 
@@ -1287,7 +1287,7 @@ sub is_changed {
 
 =item Arguments: $columname
 
-=item Returns: 0|1
+=item Return Value: 0|1
 
 =back
 
@@ -1308,7 +1308,7 @@ sub is_column_changed {
 
 =item Arguments: $result_source_instance
 
-=item Returns: a ResultSource instance
+=item Return Value: a ResultSource instance
 
 =back
 
@@ -1344,7 +1344,7 @@ sub result_source {
 
 =item Arguments: $columnname, \%columninfo
 
-=item Returns: undefined
+=item Return Value: undefined
 
 =back
 
@@ -1375,11 +1375,11 @@ sub register_column {
 
 =item Arguments: \%attrs
 
-=item Returns: A Row object
+=item Return Value: A Result object
 
 =back
 
-Fetches a fresh copy of the Row object from the database and returns it.
+Fetches a fresh copy of the Result object from the database and returns it.
 Throws an exception if a proper WHERE clause identifying the database row
 can not be constructed (i.e. if the original object does not contain its
 entire
@@ -1387,11 +1387,11 @@ entire
 ). If passed the \%attrs argument, will first apply these attributes to
 the resultset used to find the row.
 
-This copy can then be used to compare to an existing row object, to
+This copy can then be used to compare to an existing result object, to
 determine if any changes have been made in the database since it was
 created.
 
-To just update your Row object with any latest changes from the
+To just update your Result object with any latest changes from the
 database, use L</discard_changes> instead.
 
 The \%attrs argument should be compatible with
@@ -1419,7 +1419,7 @@ sub get_from_storage {
 
 =item Arguments: none or $attrs
 
-=item Returns: self (updates object in-place)
+=item Return Value: self (updates object in-place)
 
 =back
 

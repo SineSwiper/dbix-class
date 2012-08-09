@@ -406,7 +406,7 @@ sub load_classes {
 
 =item Arguments: $storage_type|{$storage_type, \%args}
 
-=item Return value: $storage_type|{$storage_type, \%args}
+=item Return Value: $storage_type|{$storage_type, \%args}
 
 =item Default value: DBIx::Class::Storage::DBI
 
@@ -432,7 +432,7 @@ L<DBIx::Class::Storage::DBI::Replicated> for an example of this.
 
 =item Arguments: $code_reference
 
-=item Return value: $code_reference
+=item Return Value: $code_reference
 
 =item Default value: None
 
@@ -740,7 +740,7 @@ found in L<DBIx::Class::Storage::DBI>.
 
 =item Arguments: $source_name, \@data;
 
-=item Return value: \@$objects | nothing
+=item Return Value: \@$objects | nothing
 
 =back
 
@@ -1137,7 +1137,7 @@ sub deploy {
 
 =item Arguments: See L<DBIx::Class::Storage::DBI/deployment_statements>
 
-=item Return value: $listofstatements
+=item Return Value: $listofstatements
 
 =back
 
@@ -1186,7 +1186,7 @@ sub create_ddl_dir {
 
 =item Arguments: $database-type, $version, $directory, $preversion
 
-=item Return value: $normalised_filename
+=item Return Value: $normalised_filename
 
 =back
 
