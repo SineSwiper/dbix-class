@@ -5,15 +5,30 @@ perl:
    - "5.12"
    - "5.10"
 
-### TODO: Add in all of the various databases that Travis has access to,
-###       and set the DBICTEST_*_DSN, _USER, _PASS env variables.
-###    MySQL, PostgreSQL, Firebird, SQL Anywhere
-
 install:
    # Deal with all of the dependancies, quickly and quietly
    - cpanm --quiet --notest Module::Install
    - perl Makefile.PL --alldeps
    - make listalldeps | cpanm --quiet --notest
+
+before_script:
+   - cpanm --quiet --notest DBD::Pg DBD::mysql DBD::Firebird Sys::SigAction
+   - export DBICTEST_PG_DSN='dbi:Pg:database=dbic_test;host=127.0.0.1'    DBICTEST_PG_USER=postgres DBICTEST_PG_PASS=''
+   - export DBICTEST_MYSQL_DSN='dbi:mysql:database=dbic_test;host=127.0.0.1' DBICTEST_MYSQL_USER=root  DBICTEST_MYSQL_PASS=''
+   - export DBICTEST_FIREBIRD_DSN='dbi:Firebird:db=/var/lib/firebird/2.5/data/employee.fdb' DBICTEST_FIREBIRD_USER=SYSDBA DBICTEST_FIREBIRD_PASS=masterkey
+   
+   - mysql -e 'create database dbic_test;'
+   - psql -c 'create database dbic_test;' -U postgres
+   
+   - sudo apt-get -y install firebird2.5-super firebird2.5-examples
+   - sudo perl -pi -e 's/\=no/=yes/;' /etc/default/firebird2.5
+   - sudo /etc/init.d/firebird2.5-super start
+   - cd /usr/share/doc/firebird2.5-examples/examples/empbuild/
+   - sudo gunzip employee.fdb.gz
+   - sudo chown firebird.firebird employee.fdb
+   - sudo mv employee.fdb /var/lib/firebird/2.5/data/
+   - cd -
+   
 script:
    # Make sure we don't run Makefile.PL without --alldeps
    - make test
